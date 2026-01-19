@@ -475,53 +475,6 @@ private collectNetworkFromStart(startY: number): Set<string> {
 }
 
 
-private leakReason(network: Set<string>): string | null {
-  const dirName = (d: number) =>
-    d === DirBit.U ? "U" : d === DirBit.R ? "R" : d === DirBit.D ? "D" : "L";
-
-  for (const key of network) {
-    const [x, y] = key.split(",").map(Number);
-    const t = this.grid[y][x];
-    if (!t) return `network cell is null at ${key}`;
-
-    const m = pieceMask(t.pieceId, t.rot);
-
-    for (const dir of ALL_DIRS) {
-      if (!hasBit(m, dir)) continue;
-
-      const off = DIR_OFFSET[dir];
-      const nx = x + off.dx;
-      const ny = y + off.dy;
-
-      // 盤外に向いた口
-      if (!this.inBounds(nx, ny)) {
-        const okLeft = (x === 0 && dir === DirBit.L);
-        const okRight = (x === this.width - 1 && dir === DirBit.R);
-        if (okLeft || okRight) continue;
-        return `LEAK_OUTSIDE at (${x},${y}) dir=${dirName(dir)}`;
-      }
-
-      // 盤内：空
-      const nt = this.grid[ny][nx];
-      if (!nt) return `LEAK_EMPTY at (${x},${y})->(${nx},${ny}) dir=${dirName(dir)}`;
-
-      // 盤内：相手が閉じてる
-      const nm = pieceMask(nt.pieceId, nt.rot);
-      if (!hasBit(nm, OPPOSITE[dir])) {
-        return `LEAK_CLOSED_NEIGHBOR at (${x},${y})->(${nx},${ny}) dir=${dirName(dir)}`;
-      }
-
-      // 盤内：ネットワーク外に口が向いてる（分岐の取りこぼし等）
-      const nk = `${nx},${ny}`;
-      if (!network.has(nk)) {
-        return `LEAK_TO_NON_NETWORK at (${x},${y})->(${nx},${ny}) dir=${dirName(dir)}`;
-      }
-    }
-  }
-  return null;
-}
-
-
 
 private networkReachesRight(network: Set<string>): boolean {
   for (const key of network) {
@@ -542,43 +495,6 @@ private networkReachesRight(network: Set<string>): boolean {
   }
   return false;
 }
-
-
-private isNetworkValid(network: Set<string>): boolean {
-  for (const key of network) {
-    const [x, y] = key.split(",").map(Number);
-    const t = this.grid[y][x]!;
-    const m = pieceMask(t.pieceId, t.rot);
-
-    for (const dir of ALL_DIRS) {
-      if (!hasBit(m, dir)) continue;
-
-      const off = DIR_OFFSET[dir];
-      const nx = x + off.dx;
-      const ny = y + off.dy;
-
-      // 盤外
-      if (!this.inBounds(nx, ny)) {
-        const okLeft = (x === 0 && dir === DirBit.L);
-        const okRight = (x === this.width - 1 && dir === DirBit.R);
-        if (okLeft || okRight) continue;
-        return false;
-      }
-
-      // 盤内
-      const nt = this.grid[ny][nx];
-      if (!nt) return false;
-
-      const nm = pieceMask(nt.pieceId, nt.rot);
-      if (!hasBit(nm, OPPOSITE[dir])) return false;
-
-      const nk = `${nx},${ny}`;
-      if (!network.has(nk)) return false;
-    }
-  }
-  return true;
-}
-
 
   private applyInitialFill(): void {
     const fill = this.stage.initialFill;

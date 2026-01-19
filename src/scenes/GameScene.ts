@@ -28,7 +28,7 @@ export class GameScene extends Phaser.Scene {
   private path: Pos[] = [];
 
   // UI refs
-  private titleText?: Phaser.GameObjects.Text;
+  public titleText?: Phaser.GameObjects.Text;
   private goalText?: Phaser.GameObjects.Text;
   private statusText?: Phaser.GameObjects.Text;
 

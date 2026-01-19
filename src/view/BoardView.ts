@@ -7,8 +7,6 @@ import {
   pieceMask,
   hasBit,
   DirBit,
-  OPPOSITE,
-  DIR_OFFSET,
 } from "../game/pieces";
 
 
@@ -365,8 +363,6 @@ private drawDebugConnections() {
     for (const t of temps) t.destroy();
     this.syncAll();
   }
-
-  private debugEnabled = true; 
 
   // ---------- Helpers ----------
   private cellCenter(x: number, y: number) {
