@@ -45,7 +45,6 @@ export class BoardInputController {
   // state for gesture
   private pointerId: number | null = null;
   private downWorld?: { x: number; y: number };
-  private downTime = 0;
   private downCell?: GridPos;
   private dragging = false;
 
@@ -101,7 +100,6 @@ export class BoardInputController {
 
     this.pointerId = pointer.id;
     this.downWorld = { x: pointer.worldX, y: pointer.worldY };
-    this.downTime = this.deps.scene.time.now;
     this.downCell = cell;
     this.dragging = false;
 
@@ -265,9 +263,6 @@ export class BoardInputController {
 
   private async snapBack() {
     if (!this.ghost) return;
-    const startCell = this.candidate; // 雑だけど、candidateが消えてる場合もある
-    // start は cleanup前に取ってるので、ここは固定しないといけない
-    // → ghostの元位置は ghost作成時点のsrc.x/yにあるので、そこに戻す
     const sx = this.ghost.getData("originX") ?? this.ghost.x;
     const sy = this.ghost.getData("originY") ?? this.ghost.y;
 

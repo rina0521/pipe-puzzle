@@ -192,24 +192,7 @@ export class GameScene extends Phaser.Scene {
     );
   }
 
-  /**
-   * BoardViewがセルスプライト配列を公開していない場合の救済。
-   * - 推奨: BoardView に getCellSprites(): Image[] を生やす
-   */
-  private getCellSpritesFromView(): Phaser.GameObjects.Image[] | null {
-    const v: any = this.view as any;
 
-    // 推奨API
-    if (typeof v.getCellSprites === "function") {
-      return v.getCellSprites();
-    }
-
-    // よくある内部プロパティ名の候補
-    if (Array.isArray(v.cellSprites)) return v.cellSprites;
-    if (Array.isArray(v.cells)) return v.cells;
-
-    return null;
-  }
 
   // -----------------------------
   // Resolve / UI
