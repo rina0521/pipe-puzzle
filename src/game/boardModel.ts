@@ -180,13 +180,24 @@ export class BoardModel {
     return null;
   }
 
-  // BoardModel に追加
   rotateCellCW(x: number, y: number) {
     const t = this.getCell(x, y);
     if (!t) return;
     t.rot = rotCW(t.rot);
   }
 
+  swapCells(a: Pos, b: Pos): void {
+    // 同じ場所なら何もしない
+    if (a.x === b.x && a.y === b.y) return;
+
+    // 盤外は無視（安全）
+    if (!this.inBounds(a.x, a.y)) return;
+    if (!this.inBounds(b.x, b.y)) return;
+
+    const tmp = this.grid[a.y][a.x];
+    this.grid[a.y][a.x] = this.grid[b.y][b.x];
+    this.grid[b.y][b.x] = tmp;
+  }
 
 
   
@@ -276,7 +287,7 @@ export class BoardModel {
 
         steps.push({
           type: "WATER",
-          cells: cells.map(c => ({ ...c, dist: 0 })), // dist 演出したければ別途 dist 計算に差し替え
+          cells: cells.map(c => ({ ...c, dist: 0 })), // ← ★ここ
         });
 
         this.clearCells(cells);
@@ -339,7 +350,6 @@ export class BoardModel {
     return steps;
   }
 
-// BoardModel class に追加
 debugWhyNotClearing(): {
   reachedRight: boolean;
   leakOk: boolean;

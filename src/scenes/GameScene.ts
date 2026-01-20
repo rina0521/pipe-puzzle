@@ -6,14 +6,15 @@ import type { StageConfig, Pos } from "../game/boardModel";
 import { BoardView } from "../view/BoardView";
 import { createStage001 } from "../stages/stage_001";
 import { UI_BOTTOM_HEIGHT, UI_TOP_HEIGHT } from "../ui/layout";
+import { BoardInputController } from "../ui/BoardInputController";
 
-type PlayState = "IDLE" | "DRAGGING" | "RESOLVING" | "CLEAR" | "GAMEOVER";
+type PlayState = "PLAYING" | "RESOLVING" | "CLEAR";
 
 export class GameScene extends Phaser.Scene {
   private model!: BoardModel;
   private view!: BoardView;
 
-  private state: PlayState = "IDLE";
+  private state: PlayState = "PLAYING";
 
   // Board area (must match BoardView construction)
   private boardArea!: { x: number; y: number; width: number; height: number };
@@ -21,16 +22,13 @@ export class GameScene extends Phaser.Scene {
   private offsetX!: number;
   private offsetY!: number;
 
-  // input state
-  private pointerDown = false;
-  private dragMoved = false;
-  private lastCell: Pos | null = null;
-  private path: Pos[] = [];
-
   // UI refs
   public titleText?: Phaser.GameObjects.Text;
   private goalText?: Phaser.GameObjects.Text;
   private statusText?: Phaser.GameObjects.Text;
+
+  // New input controller
+  private boardInput?: BoardInputController;
 
   constructor() {
     super("GameScene");
@@ -46,7 +44,7 @@ export class GameScene extends Phaser.Scene {
     this.load.image("pipe_stop", "assets/pipe/pipe_stop.png");
   }
 
-  create() {
+  async create() {
     const stage: StageConfig = createStage001();
     this.model = new BoardModel(stage);
 
@@ -65,13 +63,19 @@ export class GameScene extends Phaser.Scene {
     this.view.syncAll();
 
     // ---- Compute same layout numbers as BoardView for screen->cell mapping
-    // (Keep this in sync with BoardView constructor math)
     const cs = Math.floor(
-      Math.min(this.boardArea.width / this.model.width, this.boardArea.height / this.model.height)
+      Math.min(
+        this.boardArea.width / this.model.width,
+        this.boardArea.height / this.model.height
+      )
     );
     this.cellSize = cs;
-    this.offsetX = this.boardArea.x + Math.floor((this.boardArea.width - cs * this.model.width) / 2);
-    this.offsetY = this.boardArea.y + Math.floor((this.boardArea.height - cs * this.model.height) / 2);
+    this.offsetX =
+      this.boardArea.x +
+      Math.floor((this.boardArea.width - cs * this.model.width) / 2);
+    this.offsetY =
+      this.boardArea.y +
+      Math.floor((this.boardArea.height - cs * this.model.height) / 2);
 
     // Top UI
     this.titleText = this.add.text(12, 10, "Pipe Flow (prototype)", {
@@ -84,136 +88,145 @@ export class GameScene extends Phaser.Scene {
       color: "#cccccc",
     });
 
-    this.statusText = this.add.text(12, 58, "", { fontSize: "22px", color: "#00ff99" });
-
-    // Input
-    this.input.on("pointerdown", this.onPointerDown, this);
-    this.input.on("pointermove", this.onPointerMove, this);
-    this.input.on("pointerup", this.onPointerUp, this);
-    this.input.on("pointerupoutside", this.onPointerUp, this);
+    this.statusText = this.add.text(12, 58, "", {
+      fontSize: "22px",
+      color: "#00ff99",
+    });
 
     // Restart
     this.input.keyboard?.on("keydown-R", () => this.scene.restart());
 
-    const res = this.model.resolveAll();
-    this.view.playSteps(res.steps).then(() => this.view.syncAll());
+    // --- Initial resolve (same as before)
+    await this.resolveAndAnimate();
 
+    // --- Replace legacy pointer handlers with drag&drop swap controller
+    this.setupBoardInput();
   }
 
   // -----------------------------
-  // Input handlers
+  // New input controller setup
   // -----------------------------
-  private onPointerDown(pointer: Phaser.Input.Pointer) {
-    if (this.state !== "IDLE") return;
-
-    const cell = this.screenToCell(pointer.x, pointer.y);
-    if (!cell) return;
-
-    this.pointerDown = true;
-    this.dragMoved = false;
-    this.lastCell = cell;
-    this.path = [cell];
-  }
-
-  private onPointerMove(pointer: Phaser.Input.Pointer) {
-    if (this.state !== "IDLE") return;
-    if (!this.pointerDown) return;
-    if (!this.lastCell) return;
-
-    const cell = this.screenToCell(pointer.x, pointer.y);
-    if (!cell) return;
-
-    // same cell -> ignore
-    if (cell.x === this.lastCell.x && cell.y === this.lastCell.y) return;
-
-    // Accept movement if it stays on grid lines (same row or same col),
-    // then "step" through intermediate cells so fast drags don't skip.
-    const dx = cell.x - this.lastCell.x;
-    const dy = cell.y - this.lastCell.y;
-
-    if (dx !== 0 && dy !== 0) {
-      // diagonal jump: ignore (or you can choose a rule to resolve it)
+  private setupBoardInput() {
+    // Get cell sprites from BoardView
+    const cellSprites = this.view.getInputSpritesFlat();
+    if (!cellSprites || cellSprites.length === 0) {
+      console.warn(
+        "[GameScene] cellSprites not found. Expose them from BoardView (e.g. getCellSprites())."
+      );
       return;
     }
 
-    const stepX = dx === 0 ? 0 : dx > 0 ? 1 : -1;
-    const stepY = dy === 0 ? 0 : dy > 0 ? 1 : -1;
+    const worldToCell = (wx: number, wy: number): Pos | null => {
+      return this.screenToCell(wx, wy);
+    };
 
-    let cx = this.lastCell.x;
-    let cy = this.lastCell.y;
+    const cellToWorldCenter = (cx: number, cy: number) => {
+      return {
+        x: this.offsetX + cx * this.cellSize + this.cellSize / 2,
+        y: this.offsetY + cy * this.cellSize + this.cellSize / 2,
+      };
+    };
 
-    while (cx !== cell.x || cy !== cell.y) {
-      cx += stepX;
-      cy += stepY;
+    const canInteract = () => this.state === "PLAYING";
+    const lockInteract = () => (this.state = "RESOLVING");
+    const unlockInteract = () => {
+      // CLEAR中は解除しない
+      if (this.state !== "CLEAR") this.state = "PLAYING";
+    };
 
-      const next = { x: cx, y: cy };
+    const rotateCellClockwise = (cx: number, cy: number) => {
+      this.model.rotateCellCW(cx, cy);
+      this.view.placeFromModel(cx, cy);
+      // デバッグが要るなら残す
+      // this.view.logCell?.(cx, cy);
+    };
 
-      // extend path and apply shift
-      this.path.push(next);
+    const swapCells = (a: Pos, b: Pos) => {
+      // BoardModelに swap がある前提で呼ぶ（無ければ BoardModel に追加推奨）
+      const m: any = this.model as any;
 
-      // This rotates tiles along the entire visited path -> "carry" feeling.
-      // Requires BoardModel.shiftAlongPath(path).
-      this.model.shiftAlongPath(this.path);
+      if (typeof m.swapCells === "function") {
+        m.swapCells(a, b);
+      } else if (typeof m.swap === "function") {
+        m.swap(a, b);
+      } else {
+        // ここが無いと「全セル自由スワップ」は成立しない
+        console.error(
+          "[GameScene] BoardModel has no swapCells(a,b). Please implement it in BoardModel."
+        );
+        return;
+      }
 
-      // Update only the cells in path (cheap enough at this grid size)
-      for (const p of this.path) this.view.placeFromModel(p.x, p.y);
+      // スワップ後、2セルだけ更新（syncAllより軽い）
+      this.view.placeFromModel(a.x, a.y);
+      this.view.placeFromModel(b.x, b.y);
+    };
 
-      this.lastCell = next;
-      this.dragMoved = true;
+    const resolveAllWithAnimations = async () => {
+      await this.resolveAndAnimate();
+    };
+
+    this.boardInput?.destroy();
+    this.boardInput = new BoardInputController(
+      {
+        scene: this,
+        cols: this.model.width,
+        rows: this.model.height,
+        worldToCell,
+        cellToWorldCenter,
+        cellSprites,
+        rotateCellClockwise,
+        swapCells,
+        canInteract,
+        lockInteract,
+        unlockInteract,
+        resolveAllWithAnimations,
+      },
+      {
+        dragThresholdPx: 12,
+        fingerOffsetY: -16,
+        dragFollowLerp: 0.35,
+        holdScale: 1.06,
+        highlightAlpha: 0.22,
+      }
+    );
+  }
+
+  /**
+   * BoardViewがセルスプライト配列を公開していない場合の救済。
+   * - 推奨: BoardView に getCellSprites(): Image[] を生やす
+   */
+  private getCellSpritesFromView(): Phaser.GameObjects.Image[] | null {
+    const v: any = this.view as any;
+
+    // 推奨API
+    if (typeof v.getCellSprites === "function") {
+      return v.getCellSprites();
     }
-  }
 
-  private async onPointerUp(pointer: Phaser.Input.Pointer) {
-  if (this.state !== "IDLE") {
-    this.resetDragState();
-    return;
-  }
-  if (!this.pointerDown) return;
+    // よくある内部プロパティ名の候補
+    if (Array.isArray(v.cellSprites)) return v.cellSprites;
+    if (Array.isArray(v.cells)) return v.cells;
 
-  const releasedCell = this.lastCell ?? this.screenToCell(pointer.x, pointer.y);
-  this.pointerDown = false;
-
-  // TAP: rotate cell
-  if (!this.dragMoved && releasedCell) {
-    // 1) model更新
-    this.model.rotateCellCW(releasedCell.x, releasedCell.y);
-
-    // 2) view更新
-    this.view.placeFromModel(releasedCell.x, releasedCell.y);
-
-    // 3) ★ログ（モデルと見た目が一致してるか）
-    this.view.logCell(releasedCell.x, releasedCell.y);
-  }
-
-  // Always resolve after interaction (tap or drag)
-  this.resetDragState();
-  await this.resolveAfterInput();
-}
-
-
-  
-  private resetDragState() {
-    this.pointerDown = false;
-    this.dragMoved = false;
-    this.lastCell = null;
-    this.path = [];
+    return null;
   }
 
   // -----------------------------
   // Resolve / UI
   // -----------------------------
-  private async resolveAfterInput() {
-    if (this.state !== "IDLE") return;
+  private async resolveAndAnimate() {
+    if (this.state === "CLEAR") return;
 
     this.state = "RESOLVING";
 
-    const dbg = this.model.debugWhyNotClearing();
-    console.log("[FLOW DEBUG]", dbg);
+    // Optional debug
+    const dbg = this.model.debugWhyNotClearing?.();
+    if (dbg) console.log("[FLOW DEBUG]", dbg);
 
     const res = this.model.resolveAll();
     await this.view.playSteps(res.steps);
+    this.view.syncAll();
 
-    // update goal text
     if (this.goalText) this.goalText.setText(this.goalLabel());
 
     // clear check
@@ -223,11 +236,12 @@ export class GameScene extends Phaser.Scene {
         this.statusText.setText("CLEAR!");
         this.statusText.setColor("#00ff99");
       }
+      // クリア時はここで「Tap to next」などの案内を出すのが次タスク
       return;
     }
 
-    // (GAMEOVER not defined for this mode yet)
-    this.state = "IDLE";
+    this.state = "PLAYING";
+    if (this.statusText) this.statusText.setText("");
   }
 
   private goalLabel(): string {
@@ -240,13 +254,11 @@ export class GameScene extends Phaser.Scene {
   // screen -> cell
   // -----------------------------
   private screenToCell(px: number, py: number): Pos | null {
-    // inside board rect (with offsets)
     const x = Math.floor((px - this.offsetX) / this.cellSize);
     const y = Math.floor((py - this.offsetY) / this.cellSize);
 
     if (x < 0 || x >= this.model.width || y < 0 || y >= this.model.height) return null;
 
-    // Also ignore pointer if it's in the padding area around the fitted grid
     const left = this.offsetX;
     const top = this.offsetY;
     const right = this.offsetX + this.cellSize * this.model.width;

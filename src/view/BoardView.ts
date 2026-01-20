@@ -5,17 +5,17 @@ import type { PieceId } from "../game/pieces";
 // ★ 必須（ここに OPPOSITE を追加）
 import {
   pieceMask,
-  hasBit,
-  DirBit,
 } from "../game/pieces";
 
 
 type Rect = { x: number; y: number; width: number; height: number };
 
 type CellSprite = {
+  blank?: Phaser.GameObjects.Image;      // ← 追加：常に存在する入力面
   base?: Phaser.GameObjects.Image;       // pipe sprite
   water?: Phaser.GameObjects.Rectangle;  // water highlight behind
 };
+
 
 export class BoardView {
   private scene: Phaser.Scene;
@@ -27,9 +27,6 @@ export class BoardView {
 
   private cells: CellSprite[][];
   private ghost: Phaser.GameObjects.Image;
-
-  // ★ デバッグ用
-  private debugG: Phaser.GameObjects.Graphics;
 
   constructor(scene: Phaser.Scene, model: BoardModel, area: Rect) {
     this.scene = scene;
@@ -57,21 +54,21 @@ export class BoardView {
           .setDepth(0);
 
 
-        scene.add
+        const blank = scene.add
           .image(px, py, "pipe_blank")
           .setDisplaySize(this.cellSize, this.cellSize)
           .setAlpha(0.35)
           .setDepth(1);
 
         this.cells[y][x].water = water;
+        this.cells[y][x].blank = blank;
+
       }
     }
 
     // ghost piece preview
     this.ghost = scene.add.image(0, 0, "pipe_i").setDepth(10).setAlpha(0.6);
     this.ghost.setVisible(false);
-    // ★ デバッグ用 Graphics（必ず初期化）
-    this.debugG = this.scene.add.graphics().setDepth(20);
 
     // --- grid lines (thin gray) ---
     const g = scene.add.graphics().setDepth(1.5);
@@ -104,13 +101,11 @@ syncAll() {
       this.placeFromModel(x, y);
     }
   }
-  this.drawDebugConnections(); // ★毎回必ず更新
 }
 
 
   syncCells(cells: {x:number;y:number}[]) {
     for (const c of cells) this.placeFromModel(c.x, c.y);
-     this.drawDebugConnections(); 
   }
 
 
@@ -172,39 +167,48 @@ syncAll() {
     this.ghost.setRotation((Math.PI / 2) * p.rot);
   }
 
-  async playSteps(steps: ResolveStep[]) {
-    for (const step of steps) {
-      switch (step.type) {
+// BoardView.ts（置き換え）
+async playSteps(
+  steps: ResolveStep[],
+  opt: {
+    stepDelayMs?: number;        // 各ステップ間の待ち
+    waterStepMs?: number;        // 水distごとの待ち（A）
+    waterTailMs?: number;        // WATER最後の余韻（A）
+    enableWaterParticle?: boolean; // B
+    waterHopMs?: number;         // B 粒が1マス進む時間
+    enableWaterNotes?: boolean;  // C
+  } = {}
+) {
+  const stepDelayMs = opt.stepDelayMs ?? 0;
 
-        case "WATER": {
-          await this.playWaterHighlight(step.cells);
-          break;
-        }
-
-        case "CLEAR": {
-          this.applyClear(step.cells);
-          break;
-        }
-
-        case "DROP": {
-          await this.playDrops(step.moves);
-          break;
-        }
-
-        case "SHIFT": {
-          // 今は未使用（ドラッグ中は即反映する想定）
-          // もし resolve 内で盤面移動を演出したくなったら使う
-          await this.playShifts(step.moves);
-          break;
-        }
-
-        case "FLOW_COUNT": {
-          // UI演出用（今は何もしない）
-          break;
-        }
+  for (const step of steps) {
+    switch (step.type) {
+      case "WATER": {
+        await this.playWaterHighlight(step.cells, opt);
+        break;
+      }
+      case "CLEAR": {
+        this.applyClear(step.cells);
+        break;
+      }
+      case "DROP": {
+        await this.playDrops(step.moves);
+        break;
+      }
+      case "SHIFT": {
+        await this.playShifts(step.moves);
+        break;
+      }
+      case "FLOW_COUNT": {
+        break;
       }
     }
+
+    if (stepDelayMs > 0) {
+      await wait(this.scene, stepDelayMs);
+    }
   }
+}
 
   private async playShifts(
     moves: { from: Pos; to: Pos; tile: any }[]
@@ -239,70 +243,98 @@ syncAll() {
     this.syncAll();
   }
 
-private drawDebugConnections() {
-  if (!this.debugG) {
-    this.debugG = this.scene.add.graphics().setDepth(999);
-  }
-
-  this.debugG.clear();
-
-  const targetX = this.model.width - 1;
-  const targetY = this.model.height - 3;
-
-  const t = this.model.getCell(targetX, targetY);
-  if (!t) {
-    console.log("TARGET CELL EMPTY", { targetX, targetY });
-    return;
-  }
-
-  const mask = pieceMask(t.pieceId, t.rot);
-
-  // ★ これだけ見る
-  console.log("TARGET CELL", {
-    x: targetX,
-    y: targetY,
-    pieceId: t.pieceId,
-    rot: t.rot,
-    mask,
-  });
-
-  const { px, py } = this.cellCenter(targetX, targetY);
-  const r = this.cellSize * 0.45;
-
-  for (const dir of [DirBit.U, DirBit.R, DirBit.D, DirBit.L] as const) {
-    if (!hasBit(mask, dir)) continue;
-
-    this.debugG.lineStyle(6, 0x00ff00, 1);
-
-    if (dir === DirBit.U) this.debugG.lineBetween(px, py, px, py - r);
-    if (dir === DirBit.R) this.debugG.lineBetween(px, py, px + r, py);
-    if (dir === DirBit.D) this.debugG.lineBetween(px, py, px, py + r);
-    if (dir === DirBit.L) this.debugG.lineBetween(px, py, px - r, py);
-  }
-}
-
 
 
 
 
   // ---------- Effects ----------
-  private async playWaterHighlight(cells: { x: number; y: number; dist: number }[]) {
-    const grouped = new Map<number, { x: number; y: number }[]>();
-    for (const c of cells) {
-      const arr = grouped.get(c.dist) ?? [];
-      arr.push({ x: c.x, y: c.y });
-      grouped.set(c.dist, arr);
+private async playWaterHighlight(
+  cells: { x: number; y: number; dist: number }[],
+  opt: {
+    waterStepMs?: number;        // 波の進み
+    waterTailMs?: number;        // 最後の余韻
+    enableWaterParticle?: boolean;
+    waterHopMs?: number;         // 白点の移動
+    enableWaterNotes?: boolean;
+    waterFadeOutMs?: number;     // ★追加：消える速さ（左から引く感じ）
+    waterAlpha?: number;         // ★追加：点灯の濃さ
+    waterEndHoldMs?: number; // ★追加：流れ切った後の停止時間
+
+  } = {}
+) {
+  const waterStepMs = opt.waterStepMs ?? 140;
+  const waterTailMs = opt.waterTailMs ?? 520;
+  const hopMs = opt.waterHopMs ?? 220;
+
+  const waterAlpha = opt.waterAlpha ?? 0.65;
+  const fadeOutMs = opt.waterFadeOutMs ?? 420;
+
+  // 1) distでグルーピング
+  const grouped = new Map<number, { x: number; y: number }[]>();
+  for (const c of cells) {
+    const arr = grouped.get(c.dist) ?? [];
+    arr.push({ x: c.x, y: c.y });
+    grouped.set(c.dist, arr);
+  }
+
+  // distが全部0だと波にならないので、順序用に「擬似dist」を作る保険
+  // （本当は BoardModel 側で dist をちゃんと出すのが理想）
+  const hasMultipleDist = grouped.size > 1;
+  let dists: number[];
+
+  if (hasMultipleDist) {
+    dists = Array.from(grouped.keys()).sort((a, b) => a - b);
+  } else {
+    // 擬似dist：左→右（同じxなら上→下）で進める
+    const sorted = [...cells].sort((a, b) => (a.x - b.x) || (a.y - b.y));
+    grouped.clear();
+    sorted.forEach((c, i) => {
+      grouped.set(i, [{ x: c.x, y: c.y }]);
+    });
+    dists = Array.from(grouped.keys()); // 0..n-1
+  }
+
+  // 2) 白点（任意）
+  let dot: Phaser.GameObjects.Arc | null = null;
+  if (opt.enableWaterParticle && dists.length > 0) {
+    const p0 = grouped.get(dists[0])![0];
+    const c0 = this.cellCenter(p0.x, p0.y);
+    dot = this.scene.add
+      .circle(c0.px, c0.py, Math.max(2, Math.floor(this.cellSize * 0.12)), 0xffffff, 1)
+      .setDepth(6);
+  }
+
+  // 3) 波：distごとに “追加で” 点灯していく（右まで一瞬にならない）
+  const lit: { x: number; y: number }[] = [];
+
+  for (const d of dists) {
+    const arr = grouped.get(d)!;
+
+    for (const p of arr) {
+      this.setWater(p.x, p.y, waterAlpha);
+      lit.push(p);
     }
 
-    const dists = Array.from(grouped.keys()).sort((a, b) => a - b);
-    for (const d of dists) {
-      const arr = grouped.get(d)!;
-      for (const p of arr) this.setWater(p.x, p.y, 0.6);
-      await wait(this.scene, 45);
+    if (dot) {
+      const target = arr[0];
+      const to = this.cellCenter(target.x, target.y);
+      await this.tweenPromise(dot, { x: to.px, y: to.py, duration: hopMs, ease: "Linear" });
+
+      if (opt.enableWaterNotes) this.playWaterNote(d);
     }
-    await wait(this.scene, 120);
-    for (const c of cells) this.setWater(c.x, c.y, 0);
+
+    await wait(this.scene, waterStepMs);
   }
+
+  await wait(this.scene, waterTailMs);
+
+const endHold = opt.waterEndHoldMs ?? 250;
+await wait(this.scene, endHold);
+
+await this.fadeOutWater(lit, fadeOutMs);
+
+  dot?.destroy();
+}
 
   private applyClear(cells: { x: number; y: number }[]) {
     for (const c of cells) {
@@ -364,6 +396,8 @@ private drawDebugConnections() {
     this.syncAll();
   }
 
+  
+
   // ---------- Helpers ----------
   private cellCenter(x: number, y: number) {
     const px = this.offsetX + x * this.cellSize + this.cellSize / 2;
@@ -377,6 +411,50 @@ private drawDebugConnections() {
     w.setAlpha(alpha);
   }
   
+  private tweenPromise(
+    targets: any,
+    cfg: Omit<Phaser.Types.Tweens.TweenBuilderConfig, "targets">
+  ): Promise<void> {
+    return new Promise((resolve) => {
+      this.scene.tweens.add({
+        targets,
+        ...cfg,
+        onComplete: () => resolve(),
+      });
+    });
+  }
+
+  private async fadeOutWater(cells: { x: number; y: number }[], durationMs: number) {
+  if (cells.length === 0) return;
+
+  // 左→右に引いていく（x優先）
+  const sorted = [...cells].sort((a, b) => (a.x - b.x) || (a.y - b.y));
+
+  // グループ数を少し粗くして負荷を下げる（5x5なら何でもOK）
+  const groups = 6;
+  const chunkSize = Math.max(1, Math.ceil(sorted.length / groups));
+  const stepMs = Math.max(16, Math.floor(durationMs / groups));
+
+  for (let i = 0; i < sorted.length; i += chunkSize) {
+    const chunk = sorted.slice(i, i + chunkSize);
+    for (const p of chunk) this.setWater(p.x, p.y, 0);
+    await wait(this.scene, stepMs);
+  }
+}
+
+
+  private playWaterNote(stepIndex: number) {
+    // detune: 100 = 半音。上がりすぎ防止。
+    const detune = Math.min(stepIndex, 24) * 80;
+
+    this.scene.sound.play("sfx_blip", {
+      volume: 0.35,
+      detune,
+    } as any);
+  }
+
+
+
 public logCell(x: number, y: number) {
   const t = this.model.getCell(x, y);
   const s = this.cells[y]?.[x]?.base;
@@ -392,6 +470,32 @@ public logCell(x: number, y: number) {
     spriteRotQuarter,
     mask: t ? pieceMask(t.pieceId, t.rot) : null,
   });
+}
+
+public getCellSpritesFlat(): Phaser.GameObjects.Image[] {
+  const out: Phaser.GameObjects.Image[] = [];
+
+  for (let y = 0; y < this.model.height; y++) {
+    for (let x = 0; x < this.model.width; x++) {
+      const img = this.cells[y][x].base;
+      if (img) out.push(img);
+    }
+  }
+
+  return out;
+}
+
+public getInputSpritesFlat(): Phaser.GameObjects.Image[] {
+  const out: Phaser.GameObjects.Image[] = [];
+
+  for (let y = 0; y < this.model.height; y++) {
+    for (let x = 0; x < this.model.width; x++) {
+      const img = this.cells[y][x].blank;
+      if (img) out.push(img);
+    }
+  }
+
+  return out;
 }
 
 
