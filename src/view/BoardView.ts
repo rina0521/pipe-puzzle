@@ -243,10 +243,6 @@ async playSteps(
     this.syncAll();
   }
 
-
-
-
-
   // ---------- Effects ----------
 private async playWaterHighlight(
   cells: { x: number; y: number; dist: number }[],
@@ -263,7 +259,6 @@ private async playWaterHighlight(
   } = {}
 ) {
   const waterStepMs = opt.waterStepMs ?? 140;
-  const waterTailMs = opt.waterTailMs ?? 520;
   const hopMs = opt.waterHopMs ?? 220;
 
   const waterAlpha = opt.waterAlpha ?? 0.65;
@@ -306,6 +301,7 @@ private async playWaterHighlight(
 
   // 3) 波：distごとに “追加で” 点灯していく（右まで一瞬にならない）
   const lit: { x: number; y: number }[] = [];
+  let sfxStep = 0; // ★追加：音程上げる用（点灯したマス数カウント）
 
   for (const d of dists) {
     const arr = grouped.get(d)!;
@@ -313,6 +309,10 @@ private async playWaterHighlight(
     for (const p of arr) {
       this.setWater(p.x, p.y, waterAlpha);
       lit.push(p);
+
+      // ★追加：このマスが満たされたタイミングで鳴らす
+      this.playFillSfx(sfxStep);
+      sfxStep++;
     }
 
     if (dot) {
@@ -326,7 +326,6 @@ private async playWaterHighlight(
     await wait(this.scene, waterStepMs);
   }
 
-  await wait(this.scene, waterTailMs);
 
 const endHold = opt.waterEndHoldMs ?? 250;
 await wait(this.scene, endHold);
@@ -346,6 +345,17 @@ await this.fadeOutWater(lit, fadeOutMs);
       this.setWater(c.x, c.y, 0);
     }
   }
+
+  private playFillSfx(stepIndex: number) {
+    const baseRate = 0.95;
+    const rateStep = 0.02;
+    const rate = Math.min(1.35, baseRate + stepIndex * rateStep);
+
+    this.scene.sound.play("blip", {
+      volume: 0.35,
+      rate,
+  });
+}
 
   private async playDrops(moves: { from: Pos; to: Pos; tile: any }[]) {
     if (moves.length === 0) return;
@@ -447,7 +457,7 @@ await this.fadeOutWater(lit, fadeOutMs);
     // detune: 100 = 半音。上がりすぎ防止。
     const detune = Math.min(stepIndex, 24) * 80;
 
-    this.scene.sound.play("sfx_blip", {
+    this.scene.sound.play("blip", {
       volume: 0.35,
       detune,
     } as any);

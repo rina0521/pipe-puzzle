@@ -42,9 +42,11 @@ export class GameScene extends Phaser.Scene {
     this.load.image("pipe_t", "assets/pipe/pipe_t.png");
     this.load.image("pipe_x", "assets/pipe/pipe_x.png");
     this.load.image("pipe_stop", "assets/pipe/pipe_stop.png");
+    this.load.audio("blip", "assets/sfx/blip.mp3")
   }
 
   async create() {
+
     const stage: StageConfig = createStage001();
     this.model = new BoardModel(stage);
 
