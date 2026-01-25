@@ -523,70 +523,71 @@ private networkReachesRight(network: Set<string>): boolean {
     return rows.includes(y);
   }
 
-private computeReachableFromLeft(): {
-  reachable: Set<string>;
-  dist: Map<string, number>;
-  reachedRight: boolean;
-} {
-  const reachable = new Set<string>();
-  const dist = new Map<string, number>();
-  const q: { x: number; y: number }[] = [];
-
-  const x0 = 0;
-  for (let y = 0; y < this.height; y++) {
-    if (!this.isLeftRowEnabled(y)) continue;
-
-    const t = this.grid[y][x0];
-    if (!t) continue;
-
-    const m = pieceMask(t.pieceId, t.rot);
-    if (!hasBit(m, DirBit.L)) continue;
-
-    const key = `${x0},${y}`;
-    reachable.add(key);
-    dist.set(key, 0);
-    q.push({ x: x0, y });
-  }
-
-  let reachedRight = false;
-
-  while (q.length > 0) {
-    const cur = q.shift()!;
-    const curKey = `${cur.x},${cur.y}`;
-    const curTile = this.grid[cur.y][cur.x];
-    if (!curTile) continue;
-    const curMask = pieceMask(curTile.pieceId, curTile.rot);
-    const curDist = dist.get(curKey) ?? 0;
-
-    if (cur.x === this.width - 1 && this.isRightRowEnabled(cur.y) && hasBit(curMask, DirBit.R)) {
-      reachedRight = true;
-    }
-
-    for (const dir of ALL_DIRS) {
-      if (!hasBit(curMask, dir)) continue;
-
-      const off = DIR_OFFSET[dir];
-      const nx = cur.x + off.dx;
-      const ny = cur.y + off.dy;
-      if (!this.inBounds(nx, ny)) continue;
-
-      const nt = this.grid[ny][nx];
-      if (!nt) continue;
-
-      const nMask = pieceMask(nt.pieceId, nt.rot);
-      if (!hasBit(nMask, OPPOSITE[dir])) continue;
-
-      const nKey = `${nx},${ny}`;
-      if (reachable.has(nKey)) continue;
-
-      reachable.add(nKey);
-      dist.set(nKey, curDist + 1);
-      q.push({ x: nx, y: ny });
-    }
-  }
-
-  return { reachable, dist, reachedRight };
-}
+// TODO: 将来使用予定のメソッド（現在は未使用）
+// private computeReachableFromLeft(): {
+//   reachable: Set<string>;
+//   dist: Map<string, number>;
+//   reachedRight: boolean;
+// } {
+//   const reachable = new Set<string>();
+//   const dist = new Map<string, number>();
+//   const q: { x: number; y: number }[] = [];
+//
+//   const x0 = 0;
+//   for (let y = 0; y < this.height; y++) {
+//     if (!this.isLeftRowEnabled(y)) continue;
+//
+//     const t = this.grid[y][x0];
+//     if (!t) continue;
+//
+//     const m = pieceMask(t.pieceId, t.rot);
+//     if (!hasBit(m, DirBit.L)) continue;
+//
+//     const key = `${x0},${y}`;
+//     reachable.add(key);
+//     dist.set(key, 0);
+//     q.push({ x: x0, y });
+//   }
+//
+//   let reachedRight = false;
+//
+//   while (q.length > 0) {
+//     const cur = q.shift()!;
+//     const curKey = `${cur.x},${cur.y}`;
+//     const curTile = this.grid[cur.y][cur.x];
+//     if (!curTile) continue;
+//     const curMask = pieceMask(curTile.pieceId, curTile.rot);
+//     const curDist = dist.get(curKey) ?? 0;
+//
+//     if (cur.x === this.width - 1 && this.isRightRowEnabled(cur.y) && hasBit(curMask, DirBit.R)) {
+//       reachedRight = true;
+//     }
+//
+//     for (const dir of ALL_DIRS) {
+//       if (!hasBit(curMask, dir)) continue;
+//
+//       const off = DIR_OFFSET[dir];
+//       const nx = cur.x + off.dx;
+//       const ny = cur.y + off.dy;
+//       if (!this.inBounds(nx, ny)) continue;
+//
+//       const nt = this.grid[ny][nx];
+//       if (!nt) continue;
+//
+//       const nMask = pieceMask(nt.pieceId, nt.rot);
+//       if (!hasBit(nMask, OPPOSITE[dir])) continue;
+//
+//       const nKey = `${nx},${ny}`;
+//       if (reachable.has(nKey)) continue;
+//
+//       reachable.add(nKey);
+//       dist.set(nKey, curDist + 1);
+//       q.push({ x: nx, y: ny });
+//     }
+//   }
+//
+//   return { reachable, dist, reachedRight };
+// }
 
   // ---------- Mutations ----------
   private clearCells(cells: Pos[]): void {

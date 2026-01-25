@@ -276,12 +276,13 @@ private startDragVisual(cell: GridPos) {
 
   }
 
-  private tweenPromise(config: Phaser.Types.Tweens.TweenBuilderConfig): Promise<void> {
-    return new Promise((resolve) => {
-      this.deps.scene.tweens.add({
-        ...config,
-        onComplete: () => resolve(),
-      });
-    });
-  }
+  // TODO: 将来使用予定のメソッド（現在は未使用）
+  // private tweenPromise(config: Phaser.Types.Tweens.TweenBuilderConfig): Promise<void> {
+  //   return new Promise((resolve) => {
+  //     this.deps.scene.tweens.add({
+  //       ...config,
+  //       onComplete: () => resolve(),
+  //     });
+  //   });
+  // }
 }

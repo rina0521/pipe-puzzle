@@ -4,7 +4,7 @@ import { BoardModel } from "../game/boardModel";
 import type { StageConfig, Pos } from "../game/boardModel";
 import { BoardView } from "../view/BoardView";
 import { createStage001 } from "../stages/stage_001";
-import { UI_BOTTOM_HEIGHT, UI_TOP_HEIGHT, uiHeights } from "../ui/layout";
+import { UI_BOTTOM_HEIGHT, uiHeights } from "../ui/layout";
 import { BoardInputController } from "../ui/BoardInputController";
 import { BoardLayout, type LayoutArea } from "../view/BoardLayout";
 import { GameStateManager } from "../game/GameStateManager";
