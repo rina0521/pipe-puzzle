@@ -1,0 +1,203 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- Industrial Rain Tank (SVG) -->
+<svg xmlns="http://www.w3.org/2000/svg" width="220" height="300" viewBox="0 0 220 300" style="--level: 62%;">
+  <defs>
+    <!-- Panel / metal gradients -->
+    <linearGradient id="gPanel" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#273241"/>
+      <stop offset="1" stop-color="#141a22"/>
+    </linearGradient>
+
+    <linearGradient id="gSteel" x1="0" y1="0" x2="1" y2="0">
+      <stop offset="0" stop-color="#9aa6b2"/>
+      <stop offset="0.25" stop-color="#f0f3f6"/>
+      <stop offset="0.5" stop-color="#7d8893"/>
+      <stop offset="0.75" stop-color="#e7eaee"/>
+      <stop offset="1" stop-color="#8d99a6"/>
+    </linearGradient>
+
+    <!-- Glass / inner shine -->
+    <linearGradient id="gGlass" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#dfe7ef" stop-opacity="0.14"/>
+      <stop offset="1" stop-color="#dfe7ef" stop-opacity="0.05"/>
+    </linearGradient>
+
+    <!-- Water gradient -->
+    <linearGradient id="gWater" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#4be3ff" stop-opacity="0.95"/>
+      <stop offset="1" stop-color="#1c62ff" stop-opacity="0.95"/>
+    </linearGradient>
+
+    <!-- Water shimmer overlay -->
+    <linearGradient id="gShimmer" x1="0" y1="0" x2="1" y2="0">
+      <stop offset="0" stop-color="#ffffff" stop-opacity="0.0"/>
+      <stop offset="0.5" stop-color="#ffffff" stop-opacity="0.22"/>
+      <stop offset="1" stop-color="#ffffff" stop-opacity="0.0"/>
+    </linearGradient>
+
+    <!-- Clips -->
+    <clipPath id="clipTankInner">
+      <rect x="56" y="70" width="108" height="178" rx="16"/>
+    </clipPath>
+
+    <!-- Soft shadow -->
+    <filter id="fShadow" x="-30%" y="-30%" width="160%" height="160%">
+      <feDropShadow dx="0" dy="6" stdDeviation="6" flood-color="#000" flood-opacity="0.45"/>
+    </filter>
+
+    <!-- Small glow for water -->
+    <filter id="fGlow" x="-30%" y="-30%" width="160%" height="160%">
+      <feDropShadow dx="0" dy="0" stdDeviation="4" flood-color="#37d9ff" flood-opacity="0.35"/>
+    </filter>
+
+    <!-- Warning stripe pattern -->
+    <pattern id="pWarn" patternUnits="userSpaceOnUse" width="10" height="10" patternTransform="rotate(25)">
+      <rect width="10" height="10" fill="#0e1117"/>
+      <rect width="5" height="10" fill="#f2c200"/>
+    </pattern>
+  </defs>
+
+  <!-- Base panel -->
+  <g filter="url(#fShadow)">
+    <rect x="14" y="10" width="192" height="280" rx="18" fill="url(#gPanel)" stroke="#3a4656" stroke-width="2"/>
+    <rect x="26" y="22" width="168" height="256" rx="14" fill="none" stroke="#506174" stroke-width="1" opacity="0.8"/>
+  </g>
+
+  <!-- Header: IN / SOURCE-ish label -->
+  <g>
+    <rect x="30" y="26" width="160" height="34" rx="8" fill="#111827" stroke="#334155" stroke-width="1"/>
+    <text x="42" y="48" font-family="system-ui,Segoe UI,Arial" font-size="12" fill="#93c5fd" letter-spacing="1.2">RAIN TANK</text>
+    <circle cx="178" cy="43" r="6" fill="#0b1220" stroke="#334155" stroke-width="1"/>
+    <circle cx="178" cy="43" r="3" fill="#22c55e" opacity="0.95"/>
+  </g>
+
+  <!-- Tank body frame -->
+  <g>
+    <!-- outer steel frame -->
+    <rect x="46" y="64" width="128" height="192" rx="18" fill="none" stroke="url(#gSteel)" stroke-width="8"/>
+    <!-- glass -->
+    <rect x="56" y="70" width="108" height="178" rx="16" fill="url(#gGlass)" stroke="#9fb0c2" stroke-opacity="0.35" stroke-width="1.5"/>
+
+    <!-- screws -->
+    <g fill="#0b1220" stroke="#6b7a8a" stroke-width="1">
+      <circle cx="52" cy="72" r="5"/><circle cx="168" cy="72" r="5"/>
+      <circle cx="52" cy="248" r="5"/><circle cx="168" cy="248" r="5"/>
+    </g>
+  </g>
+
+  <!-- Measurement scale (beaker ticks) -->
+  <g opacity="0.9">
+    <g stroke="#cbd5e1" stroke-width="2" stroke-linecap="round">
+      <!-- major ticks -->
+      <line x1="40" y1="82" x2="52" y2="82"/>
+      <line x1="40" y1="112" x2="52" y2="112"/>
+      <line x1="40" y1="142" x2="52" y2="142"/>
+      <line x1="40" y1="172" x2="52" y2="172"/>
+      <line x1="40" y1="202" x2="52" y2="202"/>
+      <line x1="40" y1="232" x2="52" y2="232"/>
+    </g>
+    <g stroke="#cbd5e1" stroke-width="1.2" stroke-linecap="round" opacity="0.75">
+      <!-- minor ticks -->
+      <line x1="44" y1="97" x2="52" y2="97"/>
+      <line x1="44" y1="127" x2="52" y2="127"/>
+      <line x1="44" y1="157" x2="52" y2="157"/>
+      <line x1="44" y1="187" x2="52" y2="187"/>
+      <line x1="44" y1="217" x2="52" y2="217"/>
+      <line x1="44" y1="247" x2="52" y2="247"/>
+    </g>
+
+    <!-- labels -->
+    <g font-family="system-ui,Segoe UI,Arial" font-size="10" fill="#cbd5e1" opacity="0.9">
+      <text x="30" y="85">100</text>
+      <text x="30" y="115">80</text>
+      <text x="34" y="145">60</text>
+      <text x="34" y="175">40</text>
+      <text x="34" y="205">20</text>
+      <text x="38" y="235">0</text>
+    </g>
+  </g>
+
+  <!-- Water (clipped inside tank) -->
+  <g clip-path="url(#clipTankInner)" filter="url(#fGlow)">
+
+    <rect x="56" y="calc(70px + (178px - (178px * (var(--level) / 100))))"
+          width="108" height="calc(178px * (var(--level) / 100))"
+          fill="url(#gWater)"/>
+
+    <!-- surface highlight -->
+    <rect x="56" y="calc(70px + (178px - (178px * (var(--level) / 100))) - 6px)"
+          width="108" height="10"
+          fill="#ffffff" opacity="0.14"/>
+
+    <!-- shimmer band moving horizontally -->
+    <rect x="28" y="0" width="60" height="320" fill="url(#gShimmer)" opacity="0.55">
+      <animate attributeName="x" from="-80" to="260" dur="2.2s" repeatCount="indefinite"/>
+    </rect>
+
+    <!-- rising tiny bubbles -->
+    <g opacity="0.75">
+      <circle cx="84" cy="220" r="3.5" fill="#e0f2fe">
+        <animate attributeName="cy" values="240;120" dur="2.8s" repeatCount="indefinite"/>
+        <animate attributeName="opacity" values="0;0.7;0" dur="2.8s" repeatCount="indefinite"/>
+      </circle>
+      <circle cx="118" cy="240" r="2.8" fill="#e0f2fe">
+        <animate attributeName="cy" values="252;130" dur="2.3s" begin="0.4s" repeatCount="indefinite"/>
+        <animate attributeName="opacity" values="0;0.65;0" dur="2.3s" begin="0.4s" repeatCount="indefinite"/>
+      </circle>
+      <circle cx="144" cy="230" r="3.2" fill="#e0f2fe">
+        <animate attributeName="cy" values="246;110" dur="3.1s" begin="0.8s" repeatCount="indefinite"/>
+        <animate attributeName="opacity" values="0;0.7;0" dur="3.1s" begin="0.8s" repeatCount="indefinite"/>
+      </circle>
+    </g>
+  </g>
+
+  <!-- Rain inflow (top-left into the tank) -->
+  <g opacity="0.95">
+    <path d="M72 62 C70 52, 76 46, 84 40" fill="none" stroke="#7dd3fc" stroke-width="2" opacity="0.6"/>
+    <g stroke="#38bdf8" stroke-width="2" stroke-linecap="round">
+      <line x1="76" y1="46" x2="76" y2="58">
+        <animate attributeName="y1" values="36;46" dur="0.9s" repeatCount="indefinite"/>
+        <animate attributeName="y2" values="48;58" dur="0.9s" repeatCount="indefinite"/>
+        <animate attributeName="opacity" values="0.2;0.9;0.2" dur="0.9s" repeatCount="indefinite"/>
+      </line>
+      <line x1="88" y1="40" x2="88" y2="56">
+        <animate attributeName="y1" values="32;40" dur="1.1s" begin="0.2s" repeatCount="indefinite"/>
+        <animate attributeName="y2" values="44;56" dur="1.1s" begin="0.2s" repeatCount="indefinite"/>
+        <animate attributeName="opacity" values="0.2;0.85;0.2" dur="1.1s" begin="0.2s" repeatCount="indefinite"/>
+      </line>
+      <line x1="100" y1="44" x2="100" y2="60">
+        <animate attributeName="y1" values="34;44" dur="0.95s" begin="0.45s" repeatCount="indefinite"/>
+        <animate attributeName="y2" values="48;60" dur="0.95s" begin="0.45s" repeatCount="indefinite"/>
+        <animate attributeName="opacity" values="0.2;0.8;0.2" dur="0.95s" begin="0.45s" repeatCount="indefinite"/>
+      </line>
+    </g>
+  </g>
+
+  <!-- Bottom warning strip + status -->
+  <g>
+    <rect x="30" y="264" width="160" height="18" rx="6" fill="url(#pWarn)" opacity="0.9"/>
+    <rect x="30" y="286" width="160" height="0" rx="0" fill="none"/>
+    <text x="34" y="260" font-family="system-ui,Segoe UI,Arial" font-size="10" fill="#94a3b8" letter-spacing="0.6">DRAIN: BLOCKED</text>
+  </g>
+
+  <!-- Small indicator lights (filling pressure) -->
+  <g>
+    <rect x="30" y="236" width="160" height="22" rx="8" fill="#0b1220" stroke="#334155" stroke-width="1"/>
+    <text x="40" y="251" font-family="system-ui,Segoe UI,Arial" font-size="10" fill="#93c5fd">LEVEL</text>
+
+    <g>
+      <rect x="86" y="243" width="10" height="10" rx="2" fill="#0f172a" stroke="#334155" stroke-width="1"/>
+      <rect x="100" y="243" width="10" height="10" rx="2" fill="#0f172a" stroke="#334155" stroke-width="1"/>
+      <rect x="114" y="243" width="10" height="10" rx="2" fill="#0f172a" stroke="#334155" stroke-width="1"/>
+      <rect x="128" y="243" width="10" height="10" rx="2" fill="#0f172a" stroke="#334155" stroke-width="1"/>
+      <rect x="142" y="243" width="10" height="10" rx="2" fill="#0f172a" stroke="#334155" stroke-width="1"/>
+
+      <!-- simple "fill" illusion via opacity (not tied to level automatically) -->
+      <rect x="86" y="243" width="10" height="10" rx="2" fill="#22c55e" opacity="0.55"/>
+      <rect x="100" y="243" width="10" height="10" rx="2" fill="#22c55e" opacity="0.55"/>
+      <rect x="114" y="243" width="10" height="10" rx="2" fill="#eab308" opacity="0.55"/>
+      <rect x="128" y="243" width="10" height="10" rx="2" fill="#f97316" opacity="0.35"/>
+      <rect x="142" y="243" width="10" height="10" rx="2" fill="#ef4444" opacity="0.25"/>
+    </g>
+  </g>
+</svg>

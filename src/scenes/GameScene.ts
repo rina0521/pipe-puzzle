@@ -1,34 +1,35 @@
 // src/scenes/GameScene.ts
-
 import Phaser from "phaser";
 import { BoardModel } from "../game/boardModel";
 import type { StageConfig, Pos } from "../game/boardModel";
 import { BoardView } from "../view/BoardView";
 import { createStage001 } from "../stages/stage_001";
-import { UI_BOTTOM_HEIGHT, UI_TOP_HEIGHT } from "../ui/layout";
+import { UI_BOTTOM_HEIGHT, UI_TOP_HEIGHT, uiHeights } from "../ui/layout";
 import { BoardInputController } from "../ui/BoardInputController";
-
-type PlayState = "PLAYING" | "RESOLVING" | "CLEAR";
+import { BoardLayout, type LayoutArea } from "../view/BoardLayout";
+import { GameStateManager } from "../game/GameStateManager";
+import { DEFAULT_ANIMATION_CONFIG } from "../view/AnimationConfig";
+import { FrameRenderer } from "../view/FrameRenderer";
 
 export class GameScene extends Phaser.Scene {
   private model!: BoardModel;
   private view!: BoardView;
+  private gameState!: GameStateManager;
+  private boardLayout!: BoardLayout;
 
-  private state: PlayState = "PLAYING";
-
-  // Board area (must match BoardView construction)
-  private boardArea!: { x: number; y: number; width: number; height: number };
-  private cellSize!: number;
-  private offsetX!: number;
-  private offsetY!: number;
+  // Board area
+  private boardArea!: LayoutArea;
 
   // UI refs
-  public titleText?: Phaser.GameObjects.Text;
-  private goalText?: Phaser.GameObjects.Text;
-  private statusText?: Phaser.GameObjects.Text;
+  private goalText!: Phaser.GameObjects.Text;
+  private statusText!: Phaser.GameObjects.Text;
+  private restartBtn?: Phaser.GameObjects.Text;
 
-  // New input controller
+  // Input controller
   private boardInput?: BoardInputController;
+
+  // Frame renderer
+  private frameRenderer?: FrameRenderer;
 
   constructor() {
     super("GameScene");
@@ -42,126 +43,143 @@ export class GameScene extends Phaser.Scene {
     this.load.image("pipe_t", "assets/pipe/pipe_t.png");
     this.load.image("pipe_x", "assets/pipe/pipe_x.png");
     this.load.image("pipe_stop", "assets/pipe/pipe_stop.png");
-    this.load.audio("blip", "assets/sfx/blip.mp3")
+
+    this.load.image("tile_base_01", "assets/board/tiles/pipe_panel_tile_base_01.png");
+    this.load.image("tile_base_02", "assets/board/tiles/pipe_panel_tile_base_02.png");
+    this.load.image("tile_base_03", "assets/board/tiles/pipe_panel_tile_base_03.png");
+    this.load.image("tile_base_04", "assets/board/tiles/pipe_panel_tile_base_04.png");
+
+    // フレーム画像（9-スライス用）
+    this.load.image("field_frame_base", "assets/board/frame/field_frame_base.png");
+
+    // 背景画像
+    this.load.image("bg_top", "assets/board/frame/background.png");
+
+    this.load.audio("blip", "assets/sfx/blip.mp3");
+
   }
 
   async create() {
-
     const stage: StageConfig = createStage001();
     this.model = new BoardModel(stage);
+    this.gameState = new GameStateManager();
 
     const W = this.scale.width;
     const H = this.scale.height;
 
+    const { top: dynamicTopHeight } = uiHeights(H);
+
+    const GUTTER_X = Math.floor(W * 0.10); 
+    const BOARD_SHIFT_Y = 0; 
+
     this.boardArea = {
-      x: 0,
-      y: UI_TOP_HEIGHT,
-      width: W,
-      height: H - UI_TOP_HEIGHT - UI_BOTTOM_HEIGHT,
+      x: GUTTER_X,
+      y: dynamicTopHeight + BOARD_SHIFT_Y,
+      width: W - GUTTER_X * 2,
+      height: H - (dynamicTopHeight + BOARD_SHIFT_Y) - UI_BOTTOM_HEIGHT,
     };
 
-    // View
-    this.view = new BoardView(this, this.model, this.boardArea);
+    // BoardLayout を作成（座標計算を統一）
+    this.boardLayout = new BoardLayout(this.boardArea, this.model.width, this.model.height);
+
+    this.buildCompositePipeTextures();
+
+    // 上部背景
+    const bgTop = this.add.image(W / 2, dynamicTopHeight / 2, "bg_top")
+      .setOrigin(0.5, 0.5)
+      .setDepth(0);
+    bgTop.setDisplaySize(W, dynamicTopHeight);
+
+    // フレーム描画
+    this.frameRenderer = new FrameRenderer(this, this.boardLayout);
+    this.frameRenderer.draw();
+
+    // View（BoardLayout を渡す）
+    this.view = new BoardView(this, this.model, this.boardArea, this.boardLayout, DEFAULT_ANIMATION_CONFIG);
     this.view.syncAll();
 
-    // ---- Compute same layout numbers as BoardView for screen->cell mapping
-    const cs = Math.floor(
-      Math.min(
-        this.boardArea.width / this.model.width,
-        this.boardArea.height / this.model.height
-      )
-    );
-    this.cellSize = cs;
-    this.offsetX =
-      this.boardArea.x +
-      Math.floor((this.boardArea.width - cs * this.model.width) / 2);
-    this.offsetY =
-      this.boardArea.y +
-      Math.floor((this.boardArea.height - cs * this.model.height) / 2);
-
-    // Top UI
-    this.titleText = this.add.text(12, 10, "Pipe Flow (prototype)", {
-      fontSize: "18px",
-      color: "#ffffff",
-    });
-
-    this.goalText = this.add.text(12, 34, this.goalLabel(), {
+    this.add.text(W - 12, 10, "Pipe Flow", {
       fontSize: "14px",
+      color: "#ffffff",
+    }).setOrigin(1, 0);
+
+    this.goalText = this.add.text(W - 12, 30, this.goalLabel(), {
+      fontSize: "12px",
       color: "#cccccc",
-    });
+    }).setOrigin(1, 0);
 
     this.statusText = this.add.text(12, 58, "", {
       fontSize: "22px",
       color: "#00ff99",
     });
 
-    // Restart
+
+    // Restart (keyboard)
     this.input.keyboard?.on("keydown-R", () => this.scene.restart());
 
-    // --- Initial resolve (same as before)
+    // Restart (button)
+    this.createRestartButton();
+
+    
+    // Initial resolve
     await this.resolveAndAnimate();
 
-    // --- Replace legacy pointer handlers with drag&drop swap controller
+    // Input controller
     this.setupBoardInput();
   }
 
-  // -----------------------------
-  // New input controller setup
-  // -----------------------------
+  // 初期化時のヘルパー
+  private createRestartButton() {
+    this.restartBtn?.destroy();
+
+    const x = this.scale.width - 12;
+    const y = this.scale.height - 12;
+
+    this.restartBtn = this.add
+      .text(x, y, "RESTART", {
+        fontSize: "16px",
+        color: "#ffffff",
+        backgroundColor: "#333333",
+        padding: { left: 10, right: 10, top: 6, bottom: 6 },
+      })
+      .setOrigin(1, 1)
+      .setInteractive({ useHandCursor: true })
+      .setDepth(100000);
+
+    this.restartBtn.on("pointerdown", () => this.scene.restart());
+  }
+
+  // 入力制御のセットアップ
   private setupBoardInput() {
-    // Get cell sprites from BoardView
     const cellSprites = this.view.getInputSpritesFlat();
     if (!cellSprites || cellSprites.length === 0) {
-      console.warn(
-        "[GameScene] cellSprites not found. Expose them from BoardView (e.g. getCellSprites())."
-      );
       return;
     }
 
     const worldToCell = (wx: number, wy: number): Pos | null => {
-      return this.screenToCell(wx, wy);
+      return this.boardLayout.worldToCell(wx, wy);
     };
 
     const cellToWorldCenter = (cx: number, cy: number) => {
-      return {
-        x: this.offsetX + cx * this.cellSize + this.cellSize / 2,
-        y: this.offsetY + cy * this.cellSize + this.cellSize / 2,
-      };
+      const coord = this.boardLayout.cellCenter(cx, cy);
+      return { x: coord.px, y: coord.py };
     };
 
-    const canInteract = () => this.state === "PLAYING";
-    const lockInteract = () => (this.state = "RESOLVING");
-    const unlockInteract = () => {
-      // CLEAR中は解除しない
-      if (this.state !== "CLEAR") this.state = "PLAYING";
-    };
+    const canInteract = () => this.gameState.canInteract();
+    const lockInteract = () => this.gameState.startResolving();
+    const unlockInteract = () => this.gameState.finishResolving();
 
     const rotateCellClockwise = (cx: number, cy: number) => {
       this.model.rotateCellCW(cx, cy);
       this.view.placeFromModel(cx, cy);
-      // デバッグが要るなら残す
-      // this.view.logCell?.(cx, cy);
     };
 
     const swapCells = (a: Pos, b: Pos) => {
-      // BoardModelに swap がある前提で呼ぶ（無ければ BoardModel に追加推奨）
-      const m: any = this.model as any;
-
-      if (typeof m.swapCells === "function") {
-        m.swapCells(a, b);
-      } else if (typeof m.swap === "function") {
-        m.swap(a, b);
-      } else {
-        // ここが無いと「全セル自由スワップ」は成立しない
-        console.error(
-          "[GameScene] BoardModel has no swapCells(a,b). Please implement it in BoardModel."
-        );
-        return;
+      if (typeof this.model.swapCells === "function") {
+        this.model.swapCells(a, b);
+        this.view.placeFromModel(a.x, a.y);
+        this.view.placeFromModel(b.x, b.y);
       }
-
-      // スワップ後、2セルだけ更新（syncAllより軽い）
-      this.view.placeFromModel(a.x, a.y);
-      this.view.placeFromModel(b.x, b.y);
     };
 
     const resolveAllWithAnimations = async () => {
@@ -176,7 +194,11 @@ export class GameScene extends Phaser.Scene {
         rows: this.model.height,
         worldToCell,
         cellToWorldCenter,
-        cellSprites,
+        cellSprites: this.view.getInputSpritesFlat(),
+        getTileSprite: (cx, cy) => this.view.getBaseSpriteAt(cx, cy),
+        pickUp: (cx, cy) => this.view.pickUpAt(cx, cy),
+        movePicked: (wx, wy) => this.view.movePickedTo(wx, wy),
+        dropPicked: () => this.view.forceDropPicked(),
         rotateCellClockwise,
         swapCells,
         canInteract,
@@ -186,7 +208,7 @@ export class GameScene extends Phaser.Scene {
       },
       {
         dragThresholdPx: 12,
-        fingerOffsetY: -16,
+        fingerOffsetY: -20,
         dragFollowLerp: 0.35,
         holdScale: 1.06,
         highlightAlpha: 0.22,
@@ -194,63 +216,89 @@ export class GameScene extends Phaser.Scene {
     );
   }
 
+  private buildCompositePipeTextures() {
+    const TILE_KEYS = ["tile_base_01", "tile_base_02", "tile_base_03", "tile_base_04"] as const;
+    const PIPE_KEYS = ["pipe_i", "pipe_l", "pipe_t", "pipe_x"] as const;
+
+    const OUT = 143;          // 出力サイズ（タイルに合わせる）
+    const PIPE_SRC = 600;     // 元パイプ画像サイズ
+    const pipeScale = OUT / PIPE_SRC;
+
+    // 既に作ってたら再生成しない（リスタート時の無駄を防ぐ）
+    const exists = (key: string) => this.textures.exists(key);
+
+    for (let tileIdx = 0; tileIdx < TILE_KEYS.length; tileIdx++) {
+      const tileKey = TILE_KEYS[tileIdx];
+
+      for (const pipeKey of PIPE_KEYS) {
+        for (const rot of [0, 90, 180, 270] as const) {
+          const outKey = `cmp_${tileKey}_${pipeKey}_r${rot}`;
+
+          if (exists(outKey)) continue;
+
+          // RenderTextureに「背景→パイプ」の順に描く
+          const rt = this.make.renderTexture({ width: OUT, height: OUT }, false);
+
+          // 背景タイル（ぴったり143想定）
+          rt.draw(tileKey, 0, 0);
+
+          // パイプ（600→143に縮小、回転して中央へ）
+          // rt.draw は “その時点の transform” を見てくれないので、
+          // 一旦 sprite を作って回転・スケールして rt.draw(sprite) する
+          const spr = this.make.sprite(
+            { key: pipeKey, x: OUT / 2, y: OUT / 2, add: false },
+            false
+          );
+          spr.setScale(pipeScale);
+          spr.setAngle(rot);
+
+          rt.draw(spr);
+
+          // テクスチャとして保存
+          rt.saveTexture(outKey);
+
+          // 後始末
+          spr.destroy();
+          rt.destroy();
+        }
+      }
+    }
+  }
 
 
   // -----------------------------
   // Resolve / UI
   // -----------------------------
+  // ゲーム解決とアニメーション
   private async resolveAndAnimate() {
-    if (this.state === "CLEAR") return;
+    if (this.gameState.getState() === "CLEAR") return;
 
-    this.state = "RESOLVING";
-
-    // Optional debug
-    const dbg = this.model.debugWhyNotClearing?.();
-    if (dbg) console.log("[FLOW DEBUG]", dbg);
+    this.gameState.startResolving();
 
     const res = this.model.resolveAll();
+    // モデルの水流カウントをゲーム状態に反映
+    this.gameState.addWaterFlow(res.flowsGained);
+    
     await this.view.playSteps(res.steps);
     this.view.syncAll();
 
-    if (this.goalText) this.goalText.setText(this.goalLabel());
+    this.goalText.setText(this.goalLabel());
 
-    // clear check
-    if (this.model.waterFlows >= this.model.stage.goal.waterFlowsToClear) {
-      this.state = "CLEAR";
-      if (this.statusText) {
-        this.statusText.setText("CLEAR!");
-        this.statusText.setColor("#00ff99");
-      }
-      // クリア時はここで「Tap to next」などの案内を出すのが次タスク
+    // クリア判定
+    if (this.gameState.getWaterFlows() >= this.model.stage.goal.waterFlowsToClear) {
+      this.gameState.setClear();
+      this.statusText.setText("CLEAR!");
+      this.statusText.setColor("#00ff99");
       return;
     }
 
-    this.state = "PLAYING";
-    if (this.statusText) this.statusText.setText("");
+    this.gameState.finishResolving();
+    this.statusText.setText("");
   }
 
   private goalLabel(): string {
     const need = this.model.stage.goal.waterFlowsToClear;
-    const cur = this.model.waterFlows;
+    const cur = this.gameState.getWaterFlows();
     return `Goal: flow ${need} times   (${cur}/${need})   [R] restart`;
-  }
-
-  // -----------------------------
-  // screen -> cell
-  // -----------------------------
-  private screenToCell(px: number, py: number): Pos | null {
-    const x = Math.floor((px - this.offsetX) / this.cellSize);
-    const y = Math.floor((py - this.offsetY) / this.cellSize);
-
-    if (x < 0 || x >= this.model.width || y < 0 || y >= this.model.height) return null;
-
-    const left = this.offsetX;
-    const top = this.offsetY;
-    const right = this.offsetX + this.cellSize * this.model.width;
-    const bottom = this.offsetY + this.cellSize * this.model.height;
-
-    if (px < left || px >= right || py < top || py >= bottom) return null;
-
-    return { x, y };
   }
 }

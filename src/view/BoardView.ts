@@ -2,42 +2,44 @@ import Phaser from "phaser";
 import type { BoardModel, Pos, ResolveStep } from "../game/boardModel";
 import type { PieceId } from "../game/pieces";
 
-// ★ 必須（ここに OPPOSITE を追加）
-import {
-  pieceMask,
-} from "../game/pieces";
+import { BoardLayout } from "./BoardLayout";
+import { PiecePickupState } from "./PiecePickupState";
+import type { AnimationConfig } from "./AnimationConfig";
 
 
 type Rect = { x: number; y: number; width: number; height: number };
 
 type CellSprite = {
-  blank?: Phaser.GameObjects.Image;      // ← 追加：常に存在する入力面
-  base?: Phaser.GameObjects.Image;       // pipe sprite
-  water?: Phaser.GameObjects.Rectangle;  // water highlight behind
+  blank?: Phaser.GameObjects.Image;
+  base?: Phaser.GameObjects.Image;
+  plate?: Phaser.GameObjects.Rectangle;
+  water?: Phaser.GameObjects.Rectangle;
 };
 
 
 export class BoardView {
   private scene: Phaser.Scene;
   private model: BoardModel;
-
-  private cellSize: number;
-  private offsetX: number;
-  private offsetY: number;
+  private layout: BoardLayout;
 
   private cells: CellSprite[][];
   private ghost: Phaser.GameObjects.Image;
+  private pickedState: PiecePickupState;
 
-  constructor(scene: Phaser.Scene, model: BoardModel, area: Rect) {
+  private tileVariant: number[][];
+
+
+  constructor(
+    scene: Phaser.Scene,
+    model: BoardModel,
+    _area: Rect,
+    layout: BoardLayout,
+    _animConfig: AnimationConfig
+  ) {
     this.scene = scene;
     this.model = model;
-    
-
-    // Fit grid in area
-    const cs = Math.floor(Math.min(area.width / model.width, area.height / model.height));
-    this.cellSize = cs;
-    this.offsetX = area.x + Math.floor((area.width - cs * model.width) / 2);
-    this.offsetY = area.y + Math.floor((area.height - cs * model.height) / 2);
+    this.layout = layout;
+    this.pickedState = new PiecePickupState();
 
     this.cells = Array.from({ length: model.height }, () =>
       Array.from({ length: model.width }, () => ({}))
@@ -46,19 +48,29 @@ export class BoardView {
     // background grid + water layer
     for (let y = 0; y < model.height; y++) {
       for (let x = 0; x < model.width; x++) {
-        const { px, py } = this.cellCenter(x, y);
+        const { px, py } = this.layout.cellCenter(x, y);
 
         const water = scene.add
-          .rectangle(px, py, this.cellSize - 6, this.cellSize - 6, 0x1e90ff, 1)
+          .rectangle(px, py, this.layout.cellSize - 6, this.layout.cellSize - 6, 0x1e90ff, 1)
           .setAlpha(0)
           .setDepth(0);
 
 
         const blank = scene.add
           .image(px, py, "pipe_blank")
-          .setDisplaySize(this.cellSize, this.cellSize)
+          .setDisplaySize(this.layout.cellSize, this.layout.cellSize)
           .setAlpha(0.35)
           .setDepth(1);
+
+        const plate = scene.add
+          .rectangle(px, py, this.layout.cellSize - 6, this.layout.cellSize - 6, 0xffffff, 1)
+          .setDepth(1.2);
+
+        // blankは“見せない入力面”にする（白背景と二重に見えないように）
+        blank.setAlpha(0.01);
+
+        this.cells[y][x].plate = plate;
+
 
         this.cells[y][x].water = water;
         this.cells[y][x].blank = blank;
@@ -70,44 +82,49 @@ export class BoardView {
     this.ghost = scene.add.image(0, 0, "pipe_i").setDepth(10).setAlpha(0.6);
     this.ghost.setVisible(false);
 
-    // --- grid lines (thin gray) ---
+    // --- grid lines ---
     const g = scene.add.graphics().setDepth(1.5);
     g.lineStyle(1, 0xaaaaaa, 0.25);
 
-    // outer box + inner lines
-    const left = this.offsetX;
-    const top = this.offsetY;
-    const right = this.offsetX + this.cellSize * model.width;
-    const bottom = this.offsetY + this.cellSize * model.height;
+    const left = this.layout.offsetX;
+    const top = this.layout.offsetY;
+    const right = this.layout.offsetX + this.layout.cellSize * model.width;
+    const bottom = this.layout.offsetY + this.layout.cellSize * model.height;
 
     // vertical lines
     for (let x = 0; x <= model.width; x++) {
-      const px = left + x * this.cellSize;
+      const px = left + x * this.layout.cellSize;
       g.lineBetween(px, top, px, bottom);
     }
     // horizontal lines
     for (let y = 0; y <= model.height; y++) {
-      const py = top + y * this.cellSize;
+      const py = top + y * this.layout.cellSize;
       g.lineBetween(left, py, right, py);
     }
+
+    this.tileVariant = Array.from({ length: model.height }, () =>
+    Array.from({ length: model.width }, () => Phaser.Math.Between(0, 3))
+);
 
 
   }
 
   // ---------- Public ----------
-syncAll() {
-  for (let y = 0; y < this.model.height; y++) {
-    for (let x = 0; x < this.model.width; x++) {
-      this.placeFromModel(x, y);
+  syncAll() {
+    this.pickedState.destroyVisuals();
+    this.pickedState.sprite = null;
+    this.pickedState.cell = null;
+
+    for (let y = 0; y < this.model.height; y++) {
+      for (let x = 0; x < this.model.width; x++) {
+        this.placeFromModel(x, y);
+      }
     }
   }
-}
 
-
-  syncCells(cells: {x:number;y:number}[]) {
+  syncCells(cells: { x: number; y: number }[]) {
     for (const c of cells) this.placeFromModel(c.x, c.y);
   }
-
 
   rotateCellAnim(x: number, y: number) {
     const cell = this.cells[y][x];
@@ -115,39 +132,45 @@ syncAll() {
 
     this.scene.tweens.add({
       targets: cell.base,
-      angle: cell.base.angle + 90,   // Phaserはdeg(度)でもいける
+      angle: cell.base.angle + 90,
       duration: 80,
       ease: "Sine.easeInOut",
     });
   }
 
+placeFromModel(x: number, y: number) {
+  const tile = this.model.getCell(x, y);
+  const cell = this.cells[y][x];
+  const { px, py } = this.cellCenter(x, y);
 
-  placeFromModel(x: number, y: number) {
-    const tile = this.model.getCell(x, y);
-    const cell = this.cells[y][x];
-    const { px, py } = this.cellCenter(x, y);
-    
-
-    if (!tile) {
-      if (cell.base) {
-        cell.base.destroy();
-        cell.base = undefined;
-      }
-      return;
-    }
-    
-
-    const tex = textureForPiece(tile.pieceId);
-    if (!cell.base) {
-      cell.base = this.scene.add.image(px, py, tex).setDepth(2);
-      cell.base.setDisplaySize(this.cellSize, this.cellSize);
-    } else {
-      cell.base.setTexture(tex);
-      cell.base.setPosition(px, py);
-    }
-    cell.base.setRotation((Math.PI / 2) * tile.rot);
-    
+  if (!tile) {
+    cell.base?.destroy();
+    cell.base = undefined;
+    return;
   }
+
+  const v = this.tileVariant[y][x]; 
+  const baseTex = textureForPiece(tile.pieceId as PieceId);
+
+  const cmp = compositeKeyFromBaseTex(v, baseTex, tile.rot ?? 0);
+  const tex =
+    cmp && this.scene.textures.exists(cmp)
+      ? cmp
+      : baseTex;
+
+  if (!cell.base) {
+    cell.base = this.scene.add.image(px, py, tex).setDepth(2);
+    cell.base.setDisplaySize(this.layout.cellSize, this.layout.cellSize);
+  } else {
+    cell.base.setTexture(tex);
+    cell.base.setPosition(px, py);
+  }
+
+  cell.base.setRotation(cmp ? 0 : (Math.PI / 2) * (tile.rot ?? 0));
+}
+
+
+  
 
   showGhost(model: BoardModel) {
     const p = model.currentPiece;
@@ -157,26 +180,27 @@ syncAll() {
     }
 
     const x = model.aimColumn;
-    const y = 0; // just show at top row visually
-    const { px, py } = this.cellCenter(x, y);
+    const y = 0;
+    const { px, py } = this.layout.cellCenter(x, y);
 
     this.ghost.setVisible(true);
     this.ghost.setTexture(textureForPiece(p.pieceId));
     this.ghost.setPosition(px, py);
-    this.ghost.setDisplaySize(this.cellSize, this.cellSize);
-    this.ghost.setRotation((Math.PI / 2) * p.rot);
+    this.ghost.setDisplaySize(this.layout.cellSize, this.layout.cellSize);
+    const v = 0;
+    this.ghost.setTexture(compositeTextureKey(v, p.pieceId as PieceId, p.rot ?? 0));
+    this.ghost.setRotation(0);
   }
 
-// BoardView.ts（置き換え）
 async playSteps(
   steps: ResolveStep[],
   opt: {
-    stepDelayMs?: number;        // 各ステップ間の待ち
-    waterStepMs?: number;        // 水distごとの待ち（A）
-    waterTailMs?: number;        // WATER最後の余韻（A）
-    enableWaterParticle?: boolean; // B
-    waterHopMs?: number;         // B 粒が1マス進む時間
-    enableWaterNotes?: boolean;  // C
+    stepDelayMs?: number;
+    waterStepMs?: number;
+    waterTailMs?: number;
+    enableWaterParticle?: boolean;
+    waterHopMs?: number;
+    enableWaterNotes?: boolean;
   } = {}
 ) {
   const stepDelayMs = opt.stepDelayMs ?? 0;
@@ -221,10 +245,15 @@ async playSteps(
       const from = this.cellCenter(m.from.x, m.from.y);
       const to = this.cellCenter(m.to.x, m.to.y);
 
-      const tex = textureForPiece(m.tile.pieceId);
+      const v = this.tileVariant[m.to.y][m.to.x];
+      const baseTex = textureForPiece(m.tile.pieceId as PieceId);
+      const cmp = compositeKeyFromBaseTex(v, baseTex, m.tile.rot ?? 0);
+      const tex = (cmp && this.scene.textures.exists(cmp)) ? cmp : baseTex;
+
       const img = this.scene.add.image(from.px, from.py, tex).setDepth(5);
-      img.setDisplaySize(this.cellSize, this.cellSize);
-      img.setRotation((Math.PI / 2) * (m.tile.rot ?? 0));
+      img.setDisplaySize(this.layout.cellSize, this.layout.cellSize);
+      img.setRotation(cmp ? 0 : (Math.PI / 2) * (m.tile.rot ?? 0));
+
 
       temps.push(img);
 
@@ -247,14 +276,14 @@ async playSteps(
 private async playWaterHighlight(
   cells: { x: number; y: number; dist: number }[],
   opt: {
-    waterStepMs?: number;        // 波の進み
-    waterTailMs?: number;        // 最後の余韻
+    waterStepMs?: number;
+    waterTailMs?: number;
     enableWaterParticle?: boolean;
-    waterHopMs?: number;         // 白点の移動
+    waterHopMs?: number;
     enableWaterNotes?: boolean;
-    waterFadeOutMs?: number;     // ★追加：消える速さ（左から引く感じ）
-    waterAlpha?: number;         // ★追加：点灯の濃さ
-    waterEndHoldMs?: number; // ★追加：流れ切った後の停止時間
+    waterFadeOutMs?: number;
+    waterAlpha?: number;
+    waterEndHoldMs?: number;
 
   } = {}
 ) {
@@ -295,22 +324,22 @@ private async playWaterHighlight(
     const p0 = grouped.get(dists[0])![0];
     const c0 = this.cellCenter(p0.x, p0.y);
     dot = this.scene.add
-      .circle(c0.px, c0.py, Math.max(2, Math.floor(this.cellSize * 0.12)), 0xffffff, 1)
+      .circle(c0.px, c0.py, Math.max(2, Math.floor(this.layout.cellSize * 0.12)), 0xffffff, 1)
       .setDepth(6);
   }
 
   // 3) 波：distごとに “追加で” 点灯していく（右まで一瞬にならない）
   const lit: { x: number; y: number }[] = [];
-  let sfxStep = 0; // ★追加：音程上げる用（点灯したマス数カウント）
+  let sfxStep = 0;
 
   for (const d of dists) {
     const arr = grouped.get(d)!;
 
     for (const p of arr) {
       this.setWater(p.x, p.y, waterAlpha);
+      this.applyWaterEffectToPipe(p.x, p.y);
       lit.push(p);
 
-      // ★追加：このマスが満たされたタイミングで鳴らす
       this.playFillSfx(sfxStep);
       sfxStep++;
     }
@@ -335,16 +364,23 @@ await this.fadeOutWater(lit, fadeOutMs);
   dot?.destroy();
 }
 
-  private applyClear(cells: { x: number; y: number }[]) {
-    for (const c of cells) {
-      const cell = this.cells[c.y][c.x];
-      if (cell.base) {
-        cell.base.destroy();
-        cell.base = undefined;
-      }
-      this.setWater(c.x, c.y, 0);
+private applyClear(cells: { x: number; y: number }[]) {
+  this.cleanupPickedArtifacts();
+  this.pickedState.sprite = null;
+  this.pickedState.cell = null;
+
+  for (const c of cells) {
+    const cell = this.cells[c.y][c.x];
+    if (cell.base) {
+      // ティント状態をクリアしてから削除
+      cell.base.clearTint();
+      cell.base.destroy();
+      cell.base = undefined;
     }
+    this.setWater(c.x, c.y, 0);
   }
+}
+
 
   private playFillSfx(stepIndex: number) {
     const baseRate = 0.95;
@@ -357,21 +393,177 @@ await this.fadeOutWater(lit, fadeOutMs);
   });
 }
 
+private pickup(sprite: Phaser.GameObjects.Image, cell: { x: number; y: number }) {
+  if (this.pickedState.isActive() && this.pickedState.sprite === sprite) return;
+
+  this.pickedState.destroyVisuals();
+
+  this.pickedState.setSpriteInfo(sprite, cell);
+
+  const HOLD_SCALE = 1.06;
+  const LIFT_Y = 3;
+  const ORIGIN_PLATE_COLOR = 0x5f5f5f;
+
+  (sprite as any).clearTint?.();
+
+  // 元マスのプレート色を変更
+  const originPlate = this.cells[cell.y]?.[cell.x]?.plate ?? null;
+  if (originPlate) {
+    this.pickedState.setOriginPlateInfo(originPlate);
+    originPlate.fillColor = ORIGIN_PLATE_COLOR as any;
+    originPlate.setAlpha(1);
+  }
+
+  // スプライトを前面に
+  sprite.setDepth(999);
+  sprite.setAlpha(1);
+
+  // 白背景プレート
+  this.pickedState.bg = this.scene.add
+    .rectangle(sprite.x, sprite.y, sprite.displayWidth * 0.94, sprite.displayHeight * 0.94, 0xffffff, 1)
+    .setDepth(sprite.depth - 1);
+
+  // 影
+  this.pickedState.shadowRect = this.scene.add
+    .rectangle(sprite.x + 8, sprite.y + 12, sprite.displayWidth * 0.98, sprite.displayHeight * 0.98, 0x000000, 0.14)
+    .setDepth(sprite.depth - 2);
+
+  (this.pickedState.shadowRect as any).setRadius?.(12);
+
+  // 持ち上げアニメーション
+  this.scene.tweens.add({
+    targets: sprite,
+    scale: this.pickedState.baseScale * HOLD_SCALE,
+    y: this.pickedState.baseY - LIFT_Y,
+    duration: 80,
+    ease: "Cubic.Out",
+  });
+}
+
+
+
+
+private cleanupPickedArtifacts() {
+  this.pickedState.destroyVisuals();
+}
+
+public relayout(area: Rect) {
+  this.layout = new BoardLayout(area, this.model.width, this.model.height);
+
+  // 全セルの座標とサイズを更新
+  for (let y = 0; y < this.model.height; y++) {
+    for (let x = 0; x < this.model.width; x++) {
+      const { px, py } = this.layout.cellCenter(x, y);
+      const cell = this.cells[y][x];
+
+      cell.water?.setPosition(px, py).setSize(this.layout.cellSize - 6, this.layout.cellSize - 6);
+      cell.blank?.setPosition(px, py).setDisplaySize(this.layout.cellSize, this.layout.cellSize);
+      cell.plate?.setPosition(px, py).setSize(this.layout.cellSize - 6, this.layout.cellSize - 6);
+      cell.base?.setPosition(px, py).setDisplaySize(this.layout.cellSize, this.layout.cellSize);
+    }
+  }
+}
+
+
+public forceDropPicked() {
+  this.dropPicked();
+}
+
+private dropPicked() {
+  if (!this.pickedState.sprite) {
+    this.pickedState.destroyVisuals();
+    return;
+  }
+
+  const sprite = this.pickedState.sprite;
+  const baseDepth = this.pickedState.baseDepth;
+  const baseScale = this.pickedState.baseScale;
+  const baseX = this.pickedState.baseX;
+  const baseY = this.pickedState.baseY;
+
+  this.pickedState.destroyVisuals();
+
+  this.scene.tweens.add({
+    targets: sprite,
+    scale: baseScale,
+    x: baseX,
+    y: baseY,
+    duration: 80,
+    ease: "Quad.Out",
+    onComplete: () => {
+      sprite.setDepth(baseDepth);
+      sprite.setAlpha(1);
+      (sprite as any).clearTint?.();
+    },
+  });
+
+  this.pickedState.sprite = null;
+  this.pickedState.cell = null;
+}
+
+public pickUpAt(cx: number, cy: number) {
+  const s = this.cells[cy]?.[cx]?.base;
+  if (!s) return;
+  this.pickup(s, { x: cx, y: cy });
+}
+
+public movePickedTo(worldX: number, worldY: number) {
+  this.updatePickedPosition(worldX, worldY);
+}
+
+private updatePickedPosition(px: number, py: number) {
+  const s = this.pickedState.sprite;
+  if (!s) return;
+
+  // 盤面から消えてたら即終了＋掃除
+  if (!s.active) { 
+    this.cleanupPickedArtifacts();
+    this.pickedState.sprite = null;
+    this.pickedState.cell = null;
+    return;
+  }
+  if (!this.pickedState.sprite) return;
+
+  const FOLLOW = 0.35; // 0.25〜0.45 好み。小さいほど“ぬるっ”と遅れる
+
+  // 指で隠れるので少し上へ（必要なければ 0）
+  const OFFSET_Y = -10;
+
+  const tx = px;
+  const ty = py + OFFSET_Y;
+
+  this.pickedState.sprite.x = Phaser.Math.Linear(this.pickedState.sprite.x, tx, FOLLOW);
+  this.pickedState.sprite.y = Phaser.Math.Linear(this.pickedState.sprite.y, ty, FOLLOW);
+
+  if (this.pickedState.shadowRect) {
+    this.pickedState.shadowRect.x = Phaser.Math.Linear(this.pickedState.shadowRect.x, this.pickedState.sprite.x + 8, FOLLOW);
+    this.pickedState.shadowRect.y = Phaser.Math.Linear(this.pickedState.shadowRect.y, this.pickedState.sprite.y + 12, FOLLOW);
+  }
+
+  if (this.pickedState.bg) {
+    this.pickedState.bg.x = Phaser.Math.Linear(this.pickedState.bg.x, this.pickedState.sprite.x, FOLLOW);
+    this.pickedState.bg.y = Phaser.Math.Linear(this.pickedState.bg.y, this.pickedState.sprite.y, FOLLOW);
+  }
+
+  if (this.pickedState.sprite) {
+    const d = this.pickedState.sprite.depth;
+    this.pickedState.bg?.setDepth(d - 1);
+    this.pickedState.shadowRect?.setDepth(d - 2);
+  }
+}
+
   private async playDrops(moves: { from: Pos; to: Pos; tile: any }[]) {
     if (moves.length === 0) return;
 
-    // Create temp sprites at "from", tween to "to"
     const temps: Phaser.GameObjects.Image[] = [];
 
     for (const m of moves) {
-      // to は盤内のはずだが念のため
       if (m.to.x < 0 || m.to.x >= this.model.width || m.to.y < 0 || m.to.y >= this.model.height) {
         continue;
       }
-      const from = this.cellCenter(m.from.x, m.from.y);
-      const to = this.cellCenter(m.to.x, m.to.y);
+      const from = this.layout.cellCenter(m.from.x, m.from.y);
+      const to = this.layout.cellCenter(m.to.x, m.to.y);
 
-      // Hide any existing sprite at from (we'll resync later)
       const fy = m.from.y;
       const fx = m.from.x;
       if (fy >= 0 && fy < this.model.height && fx >= 0 && fx < this.model.width) {
@@ -382,14 +574,17 @@ await this.fadeOutWater(lit, fadeOutMs);
         }
       }
 
-      const tex = textureForPiece(m.tile.pieceId as PieceId);
+      const v = this.tileVariant[m.to.y][m.to.x]; 
+      const baseTex = textureForPiece(m.tile.pieceId as PieceId);
+      const cmp = compositeKeyFromBaseTex(v, baseTex, m.tile.rot ?? 0);
+      const tex = (cmp && this.scene.textures.exists(cmp)) ? cmp : baseTex;
+
       const img = this.scene.add.image(from.px, from.py, tex).setDepth(5);
-      img.setDisplaySize(this.cellSize, this.cellSize);
-      img.setRotation((Math.PI / 2) * (m.tile.rot ?? 0));
+      img.setDisplaySize(this.layout.cellSize, this.layout.cellSize);
+      img.setRotation(cmp ? 0 : (Math.PI / 2) * (m.tile.rot ?? 0));
 
       temps.push(img);
 
-      // Tween to destination
       this.scene.tweens.add({
         targets: img,
         x: to.px,
@@ -401,18 +596,14 @@ await this.fadeOutWater(lit, fadeOutMs);
 
     await wait(this.scene, 150);
 
-    // Cleanup temps and redraw final state from model
     for (const t of temps) t.destroy();
     this.syncAll();
   }
 
   
 
-  // ---------- Helpers ----------
   private cellCenter(x: number, y: number) {
-    const px = this.offsetX + x * this.cellSize + this.cellSize / 2;
-    const py = this.offsetY + y * this.cellSize + this.cellSize / 2;
-    return { px, py };
+    return this.layout.cellCenter(x, y);
   }
 
   private setWater(x: number, y: number, alpha: number) {
@@ -465,21 +656,7 @@ await this.fadeOutWater(lit, fadeOutMs);
 
 
 
-public logCell(x: number, y: number) {
-  const t = this.model.getCell(x, y);
-  const s = this.cells[y]?.[x]?.base;
-
-  const q = s ? Math.round(s.rotation / (Math.PI / 2)) : null;
-  const spriteRotQuarter = q === null ? null : ((q % 4) + 4) % 4;
-
-
-  console.log("[CELL]", {
-    x, y,
-    pieceId: t?.pieceId,
-    modelRot: t?.rot,
-    spriteRotQuarter,
-    mask: t ? pieceMask(t.pieceId, t.rot) : null,
-  });
+public logCell() {
 }
 
 public getCellSpritesFlat(): Phaser.GameObjects.Image[] {
@@ -508,6 +685,37 @@ public getInputSpritesFlat(): Phaser.GameObjects.Image[] {
   return out;
 }
 
+  // パイプに水流演出を適用（ティント、グロー、脈動）
+  private applyWaterEffectToPipe(x: number, y: number) {
+    const sprite = this.cells[y]?.[x]?.base;
+    if (!sprite) return;
+
+    // ティント：明るい水色
+    sprite.setTint(0x87CEEB);
+
+    // グロー効果：スケール脈動
+    this.scene.tweens.add({
+      targets: sprite,
+      scale: (sprite.scaleX ?? 1) * 1.08,
+      duration: 150,
+      ease: "Sine.easeInOut",
+      yoyo: true,
+    });
+
+    // アルファ変動で発光感を演出
+    const originalAlpha = sprite.alpha ?? 1;
+    sprite.setAlpha(0.95);
+    this.scene.time.delayedCall(250, () => {
+      if (sprite.active) {
+        sprite.setAlpha(originalAlpha);
+      }
+    });
+  }
+
+public getBaseSpriteAt(x: number, y: number): Phaser.GameObjects.Image | null {
+  return this.cells[y]?.[x]?.base ?? null;
+}
+
 
 
 
@@ -527,9 +735,43 @@ function textureForPiece(pieceId: PieceId): string {
   }
 }
 
+function compositeTextureKey(
+  tileVar: number,            // 0..3
+  pieceId: PieceId,
+  rot: number                 // 0..3
+): string {
+  // tile_base_01..04 を前提
+  const tileKey = `tile_base_0${tileVar + 1}`;
+
+  const pipeKey = pipeTextureKey(pieceId);
+  if (!pipeKey) return textureForPiece(pieceId);
+
+  const deg = (rot % 4) * 90;
+  return `cmp_${tileKey}_${pipeKey}_r${deg}`;
+}
+
+function pipeTextureKey(pieceId: PieceId): string | null {
+  const s = String(pieceId);
+
+  if (s.startsWith("I")) return "pipe_i";
+  if (s.startsWith("L")) return "pipe_l";
+  if (s.startsWith("T")) return "pipe_t";
+  if (s.startsWith("X")) return "pipe_x";
+  
+  return null;
+}
 
 
 function wait(scene: Phaser.Scene, ms: number) {
   return new Promise<void>((resolve) => scene.time.delayedCall(ms, () => resolve()));
 }
 
+function compositeKeyFromBaseTex(tileVar: number, baseTex: string, rot: number): string | null {
+  // baseTex が pipe_i/l/t/x のときだけ合成
+  if (baseTex !== "pipe_i" && baseTex !== "pipe_l" && baseTex !== "pipe_t" && baseTex !== "pipe_x") {
+    return null;
+  }
+  const tileKey = `tile_base_0${tileVar + 1}`;
+  const deg = (rot % 4) * 90;
+  return `cmp_${tileKey}_${baseTex}_r${deg}`;
+}

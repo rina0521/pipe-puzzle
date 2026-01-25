@@ -264,7 +264,6 @@ export class BoardModel {
     while (true) {
       let clearedThisPass = false;
 
-      // ★ 左端の各行を「別の供給口」として、入口ごとに判定する
       for (let startY = 0; startY < this.height; startY++) {
         if (!this.isLeftRowEnabled(startY)) continue;
 
@@ -277,21 +276,24 @@ export class BoardModel {
         // 健全性チェック（リーク禁止）
         const chk = this.checkNetworkValid(network);
         if (!chk.ok) {
-          // デバッグしたいならここでログ
-          // console.log("[resolve blocked]", startY, chk.reason);
           continue;
         }
 
         // --- ここまで来たら「この入口ネットワークだけ」消す ---
-        const cells = Array.from(network).map(keyToPos);
+        // ネットワークの距離情報を計算（パイプ接続ルートに沿った順番）
+        const reachInfo = this.computeDistInNetwork(network);
+        const cells = Array.from(network).map(key => {
+          const pos = keyToPos(key);
+          return { ...pos, dist: reachInfo.get(key) ?? 0 };
+        });
 
         steps.push({
           type: "WATER",
-          cells: cells.map(c => ({ ...c, dist: 0 })), // ← ★ここ
+          cells: cells,
         });
 
-        this.clearCells(cells);
-        steps.push({ type: "CLEAR", cells });
+        this.clearCells(Array.from(network).map(keyToPos));
+        steps.push({ type: "CLEAR", cells: Array.from(network).map(keyToPos) });
 
         flows += 1;
         this.waterFlows += 1;
@@ -303,7 +305,6 @@ export class BoardModel {
           steps.push({ type: "DROP", moves: gravityMoves });
         }
 
-        // ★ 補充（盤面を満杯に戻す）
         const refillMoves = this.refillFromTop();
         if (refillMoves.length > 0) {
           steps.push({ type: "DROP", moves: refillMoves });
@@ -350,98 +351,7 @@ export class BoardModel {
     return steps;
   }
 
-debugWhyNotClearing(): {
-  reachedRight: boolean;
-  leakOk: boolean;
-  reachableCount: number;
-  firstLeak?: {
-    x: number; y: number; dir: number;
-    reason: "OUT_OF_BOUNDS" | "EMPTY_NEIGHBOR" | "NEIGHBOR_NOT_REACHABLE" | "NO_OPPOSITE";
-    nx?: number; ny?: number;
-  };
-} {
-  const water = this.computeReachableFromLeft();
-
-  // reachedRight が false の時点で「右まで届いてない」
-  if (!water.reachedRight) {
-    return {
-      reachedRight: false,
-      leakOk: false,
-      reachableCount: water.reachable.size,
-    };
-  }
-
-  // reachable ネットワークの「最初の漏れ」を探して返す
-  const reachable = water.reachable;
-
-  for (const key of reachable) {
-    const [x, y] = key.split(",").map(Number);
-    const t = this.grid[y][x];
-    if (!t) continue;
-
-    const m = pieceMask(t.pieceId, t.rot);
-
-    for (const dir of ALL_DIRS) {
-      if (!hasBit(m, dir)) continue;
-
-      const off = DIR_OFFSET[dir];
-      const nx = x + off.dx;
-      const ny = y + off.dy;
-
-      if (!this.inBounds(nx, ny)) {
-        const okLeft = (x === 0 && dir === DirBit.L && this.isLeftRowEnabled(y));
-        const okRight = (x === this.width - 1 && dir === DirBit.R && this.isRightRowEnabled(y));
-        if (okLeft || okRight) continue;
-
-        return {
-          reachedRight: true,
-          leakOk: false,
-          reachableCount: reachable.size,
-          firstLeak: { x, y, dir, nx, ny, reason: "OUT_OF_BOUNDS" },
-        };
-      }
-
-      const nt = this.grid[ny][nx];
-      if (!nt) {
-        return {
-          reachedRight: true,
-          leakOk: false,
-          reachableCount: reachable.size,
-          firstLeak: { x, y, dir, nx, ny, reason: "EMPTY_NEIGHBOR" },
-        };
-      }
-
-      const nKey = `${nx},${ny}`;
-      if (!reachable.has(nKey)) {
-        return {
-          reachedRight: true,
-          leakOk: false,
-          reachableCount: reachable.size,
-          firstLeak: { x, y, dir, nx, ny, reason: "NEIGHBOR_NOT_REACHABLE" },
-        };
-      }
-
-      const nm = pieceMask(nt.pieceId, nt.rot);
-      if (!hasBit(nm, OPPOSITE[dir])) {
-        return {
-          reachedRight: true,
-          leakOk: false,
-          reachableCount: reachable.size,
-          firstLeak: { x, y, dir, nx, ny, reason: "NO_OPPOSITE" },
-        };
-      }
-    }
-  }
-
-  // ここまで来たら漏れなし
-  return {
-    reachedRight: true,
-    leakOk: true,
-    reachableCount: reachable.size,
-  };
-}
-
-private collectNetworkFromStart(startY: number): Set<string> {
+  private collectNetworkFromStart(startY: number): Set<string> {
   const visited = new Set<string>();
   const q: Pos[] = [];
 
@@ -482,6 +392,54 @@ private collectNetworkFromStart(startY: number): Set<string> {
   }
 
   return visited;
+}
+
+private computeDistInNetwork(network: Set<string>): Map<string, number> {
+  const dist = new Map<string, number>();
+  const q: string[] = [];
+
+  // 左端のセルをスタート地点にする（最小のx座標）
+  let minX = Infinity;
+  let startKey = "";
+  for (const key of network) {
+    const [x] = key.split(",").map(Number);
+    if (x < minX) {
+      minX = x;
+      startKey = key;
+    }
+  }
+
+  if (!startKey) return dist;
+
+  dist.set(startKey, 0);
+  q.push(startKey);
+
+  while (q.length > 0) {
+    const curKey = q.shift()!;
+    const [cx, cy] = curKey.split(",").map(Number);
+    const curDist = dist.get(curKey) ?? 0;
+    const curTile = this.grid[cy][cx];
+    if (!curTile) continue;
+
+    const curMask = pieceMask(curTile.pieceId, curTile.rot);
+
+    for (const dir of ALL_DIRS) {
+      if (!hasBit(curMask, dir)) continue;
+
+      const off = DIR_OFFSET[dir];
+      const nx = cx + off.dx;
+      const ny = cy + off.dy;
+
+      const nk = `${nx},${ny}`;
+      if (!network.has(nk)) continue;
+      if (dist.has(nk)) continue;
+
+      dist.set(nk, curDist + 1);
+      q.push(nk);
+    }
+  }
+
+  return dist;
 }
 
 
@@ -582,8 +540,6 @@ private computeReachableFromLeft(): {
     if (!t) continue;
 
     const m = pieceMask(t.pieceId, t.rot);
-
-    // ★ 左タンクは盤外（左側）にあるので、左向き(L)の口が必要
     if (!hasBit(m, DirBit.L)) continue;
 
     const key = `${x0},${y}`;
@@ -599,11 +555,9 @@ private computeReachableFromLeft(): {
     const curKey = `${cur.x},${cur.y}`;
     const curTile = this.grid[cur.y][cur.x];
     if (!curTile) continue;
-
     const curMask = pieceMask(curTile.pieceId, curTile.rot);
     const curDist = dist.get(curKey) ?? 0;
 
-    // ★ 右端で右向き(R)が開いてれば排水に到達
     if (cur.x === this.width - 1 && this.isRightRowEnabled(cur.y) && hasBit(curMask, DirBit.R)) {
       reachedRight = true;
     }

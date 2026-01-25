@@ -17,6 +17,8 @@ export type BoardInputDeps = {
   // セルスプライト（セルごとに1つ、Interactive有効にする）
   // 例: sprites[y * cols + x]
   cellSprites: Phaser.GameObjects.Image[];
+  getTileSprite?: (cx: number, cy: number) => Phaser.GameObjects.Image | null;
+
 
   // 操作（モデル更新はここでやる）
   rotateCellClockwise: (cx: number, cy: number) => void;
@@ -27,6 +29,11 @@ export type BoardInputDeps = {
   lockInteract: () => void;   // state = RESOLVING
   unlockInteract: () => void; // state = PLAYING
   resolveAllWithAnimations: () => Promise<void>; // DROP/CLEAR/WATER含む
+
+  pickUp?: (cx: number, cy: number) => void;
+  movePicked?: (worldX: number, worldY: number) => void;
+  dropPicked?: () => void;
+
 };
 
 export type BoardInputOptions = {
@@ -50,10 +57,15 @@ export class BoardInputController {
 
   // drag visuals
   private ghost?: Phaser.GameObjects.Image;
+  private ghostShadow?: Phaser.GameObjects.Image;
   private ghostBaseDepth = 10_000;
 
   private candidate?: GridPos;
   private candidateHL?: Phaser.GameObjects.Rectangle;
+
+  private shadowRect?: Phaser.GameObjects.Rectangle;
+  private originMarker?: Phaser.GameObjects.Rectangle; // 元位置の目印（任意）
+
 
   constructor(deps: BoardInputDeps, options: BoardInputOptions = {}) {
     this.deps = deps;
@@ -76,6 +88,9 @@ export class BoardInputController {
     this.deps.scene.input.off(Phaser.Input.Events.POINTER_UP, this.onUp, this);
     this.deps.scene.input.off(Phaser.Input.Events.POINTER_UP_OUTSIDE, this.onUp, this);
     this.cleanupDrag();
+    this.candidateHL?.destroy();
+    this.candidateHL = undefined;
+
   }
 
   private attach() {
@@ -121,10 +136,12 @@ export class BoardInputController {
       // drag確定：回転（タップ）をキャンセルするために dragging=true
       this.dragging = true;
       this.startDragVisual(this.downCell);
+      this.deps.pickUp?.(this.downCell.x, this.downCell.y);
+
     }
 
     if (this.dragging) {
-      this.updateGhost(pointer.worldX, pointer.worldY);
+      this.deps.movePicked?.(pointer.worldX, pointer.worldY);
 
       const cand = this.deps.worldToCell(pointer.worldX, pointer.worldY);
       if (cand) {
@@ -135,30 +152,31 @@ export class BoardInputController {
         this.hideCandidateHighlight();
       }
     }
+
   }
 
-  private async onUp(pointer: Phaser.Input.Pointer) {
-    if (this.pointerId !== pointer.id) return;
-    if (!this.downCell) return;
+private async onUp(pointer: Phaser.Input.Pointer) {
+  if (this.pointerId !== pointer.id) return;
+  if (!this.downCell) return;
 
-    const start = this.downCell;
-    const end = this.candidate;
+  const start = this.downCell;
+  const end = this.candidate;
 
-    // リセット（早めに）
-    const wasDragging = this.dragging;
-    this.pointerId = null;
-    this.downWorld = undefined;
-    this.downCell = undefined;
-    this.dragging = false;
+  const wasDragging = this.dragging;
 
+  // 先に gesture state を解除
+  this.pointerId = null;
+  this.downWorld = undefined;
+  this.downCell = undefined;
+  this.dragging = false;
+
+  try {
     if (!this.deps.canInteract()) {
-      // 念のため
       this.cleanupDrag();
       return;
     }
 
     if (!wasDragging) {
-      // タップ＝回転
       this.cleanupDrag();
       this.deps.lockInteract();
       try {
@@ -170,70 +188,43 @@ export class BoardInputController {
       return;
     }
 
-    // ドラッグ＝スワップ（全セル自由）
-    if (!end) {
-      // 盤外で離した → スナップバック
-      await this.snapBack();
+    if (!end || (end.x === start.x && end.y === start.y)) {
+      // 戻る演出なし。見た目は dropPicked が元に戻す
       this.cleanupDrag();
       return;
     }
 
-    if (end.x === start.x && end.y === start.y) {
-      // 同セルに戻した → スナップバック（気持ちよさ優先）
-      await this.snapBack();
-      this.cleanupDrag();
-      return;
-    }
-
-    // スワップ成立
-    // 見た目：ゴーストをドロップ位置へスナップ → 盤面同期はswap後にあなたのsyncで合わせる
-    await this.dropTo(end);
-
-    this.cleanupDrag();
+   this.cleanupDrag();
 
     this.deps.lockInteract();
-    try {
-      this.deps.swapCells(start, end);
-      await this.deps.resolveAllWithAnimations();
-    } finally {
-      this.deps.unlockInteract();
-    }
+    this.deps.swapCells(start, end);
+    await this.deps.resolveAllWithAnimations();
+  } finally {
+  this.deps.unlockInteract();
   }
+}
 
   // --- visuals ---
+private startDragVisual(cell: GridPos) {
+  // ここでは “視覚演出” を一切しない
+  // 視覚は deps.pickUp() / deps.movePicked() / deps.dropPicked() に集約する
+  this.originMarker?.destroy();
+  this.originMarker = undefined;
+  this.shadowRect?.destroy();
+  this.shadowRect = undefined;
 
-  private startDragVisual(cell: GridPos) {
-    const idx = cell.y * this.deps.cols + cell.x;
-    const src = this.deps.cellSprites[idx];
-    if (!src) return;
+  // もし「スナップバック演出」をController側でやりたいなら、
+  // そのための情報だけ保持する（表示はしない）。
+  const src =
+    (this.deps.getTileSprite ? this.deps.getTileSprite(cell.x, cell.y) : null)
+    ?? this.deps.cellSprites[cell.y * this.deps.cols + cell.x];
 
-    // ゴースト（掴んだ見た目）
-    this.ghost = this.deps.scene.add
-      .image(src.x, src.y, src.texture.key, src.frame.name as any)
-      .setDepth(this.ghostBaseDepth)
-      .setScale(src.scaleX * this.opt.holdScale, src.scaleY * this.opt.holdScale)
-      .setAlpha(1);
+  if (!src) return;
 
-    // “掴んだ元”は少し薄くして存在を残す（完全非表示にすると位置感が消える）
-    src.setAlpha(0.45);
-
-    // 候補HLはこの時点で表示済みの想定
-
-    this.ghost.setData("originX", src.x);
-    this.ghost.setData("originY", src.y);
-
-  }
-
-  private updateGhost(worldX: number, worldY: number) {
-    if (!this.ghost) return;
-
-    // 指追従（少し遅れ）
-    const targetX = worldX;
-    const targetY = worldY + this.opt.fingerOffsetY;
-
-    this.ghost.x = Phaser.Math.Linear(this.ghost.x, targetX, this.opt.dragFollowLerp);
-    this.ghost.y = Phaser.Math.Linear(this.ghost.y, targetY, this.opt.dragFollowLerp);
-  }
+  const b = src.getBounds();
+  (src as any).setData("dragOriginWorldX", b.centerX);
+  (src as any).setData("dragOriginWorldY", b.centerY);
+}
 
   private ensureCandidateHighlight() {
     if (this.candidateHL) return;
@@ -261,35 +252,6 @@ export class BoardInputController {
     this.candidateHL?.setVisible(false);
   }
 
-  private async snapBack() {
-    if (!this.ghost) return;
-    const sx = this.ghost.getData("originX") ?? this.ghost.x;
-    const sy = this.ghost.getData("originY") ?? this.ghost.y;
-
-    await this.tweenPromise({
-      targets: this.ghost,
-      x: sx,
-      y: sy,
-      scaleX: this.ghost.scaleX * 0.985,
-      scaleY: this.ghost.scaleY * 0.985,
-      duration: 130,
-      ease: "Back.easeOut",
-    });
-  }
-
-  private async dropTo(cell: GridPos) {
-    if (!this.ghost) return;
-    const { x, y } = this.deps.cellToWorldCenter(cell.x, cell.y);
-
-    await this.tweenPromise({
-      targets: this.ghost,
-      x,
-      y,
-      duration: 90,
-      ease: "Sine.easeOut",
-    });
-  }
-
   private cleanupDrag() {
     // 元セルを戻す（alpha）
     // ghost作成時に薄くしたセルを戻すため、全セル戻しても軽いならそれが簡単で安全
@@ -298,10 +260,20 @@ export class BoardInputController {
     this.ghost?.destroy();
     this.ghost = undefined;
 
+    this.ghostShadow?.destroy();
+    this.ghostShadow = undefined;
+
+
     this.hideCandidateHighlight();
 
     // gesture state
     this.candidate = undefined;
+  this.shadowRect?.destroy();
+  this.shadowRect = undefined;
+
+  this.originMarker?.destroy();
+  this.originMarker = undefined;
+
   }
 
   private tweenPromise(config: Phaser.Types.Tweens.TweenBuilderConfig): Promise<void> {
