@@ -21,7 +21,7 @@ export type BoardInputDeps = {
 
 
   // 操作（モデル更新はここでやる）
-  rotateCellClockwise: (cx: number, cy: number) => void;
+  rotateCellClockwise: (cx: number, cy: number) => Promise<void>;
   swapCells: (a: GridPos, b: GridPos) => void;
 
   // 演出・解決（ロック制御含む）
@@ -180,7 +180,7 @@ private async onUp(pointer: Phaser.Input.Pointer) {
       this.cleanupDrag();
       this.deps.lockInteract();
       try {
-        this.deps.rotateCellClockwise(start.x, start.y);
+        await this.deps.rotateCellClockwise(start.x, start.y);
         await this.deps.resolveAllWithAnimations();
       } finally {
         this.deps.unlockInteract();

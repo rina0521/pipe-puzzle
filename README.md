@@ -16,4 +16,7 @@ https://phaser.io/
 ## Assets & Licenses
 
 - soundeffect
-  - Source: 効果音ラボ https://soundeffect-lab.info/
+  - Source:
+    - 効果音ラボ https://soundeffect-lab.info/
+    - 魔王魂 https://maou.audio/
+    - くらげ工匠 http://www.kurage-kosho.info/

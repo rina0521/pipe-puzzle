@@ -52,10 +52,21 @@ export class GameScene extends Phaser.Scene {
     // フレーム画像（9-スライス用）
     this.load.image("field_frame_base", "assets/board/frame/field_frame_base.png");
 
+    // 出力パイプ画像
+    this.load.image("out_pipe", "assets/board/frame/out_pipe.png");
+    this.load.image("out_to", "assets/board/frame/out_to.png");
+
     // 背景画像
     this.load.image("bg_top", "assets/board/frame/background.png");
 
+    // フランジ画像（パイプ接続部品）
+    this.load.image("flange", "assets/pipe/flange.png");
+
+    // 効果音
     this.load.audio("blip", "assets/sfx/blip.mp3");
+    this.load.audio("rotate", "assets/sfx/rotate.mp3");
+    this.load.audio("steam", "assets/sfx/steam.mp3");
+    this.load.audio("water", "assets/sfx/water.mp3");
 
   }
 
@@ -84,11 +95,13 @@ export class GameScene extends Phaser.Scene {
 
     this.buildCompositePipeTextures();
 
-    // 上部背景
-    const bgTop = this.add.image(W / 2, dynamicTopHeight / 2, "bg_top")
+    // 上部背景（フレーム上端まで伸ばす）
+    const frameTopY = this.boardLayout.offsetY - 48;  // FRAME_PART_SIZEと同じ値
+    const bgTopHeight = frameTopY;
+    const bgTop = this.add.image(W / 2, bgTopHeight / 2, "bg_top")
       .setOrigin(0.5, 0.5)
       .setDepth(0);
-    bgTop.setDisplaySize(W, dynamicTopHeight);
+    bgTop.setDisplaySize(W, bgTopHeight);
 
     // フレーム描画
     this.frameRenderer = new FrameRenderer(this, this.boardLayout);
@@ -169,7 +182,8 @@ export class GameScene extends Phaser.Scene {
     const lockInteract = () => this.gameState.startResolving();
     const unlockInteract = () => this.gameState.finishResolving();
 
-    const rotateCellClockwise = (cx: number, cy: number) => {
+    const rotateCellClockwise = async (cx: number, cy: number) => {
+      this.sound.play("rotate");
       this.model.rotateCellCW(cx, cy);
       this.view.placeFromModel(cx, cy);
     };
@@ -177,6 +191,7 @@ export class GameScene extends Phaser.Scene {
     const swapCells = (a: Pos, b: Pos) => {
       if (typeof this.model.swapCells === "function") {
         this.model.swapCells(a, b);
+        this.view.forceDropPicked();
         this.view.placeFromModel(a.x, a.y);
         this.view.placeFromModel(b.x, b.y);
       }

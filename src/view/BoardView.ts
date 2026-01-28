@@ -1,6 +1,7 @@
 import Phaser from "phaser";
 import type { BoardModel, Pos, ResolveStep } from "../game/boardModel";
 import type { PieceId } from "../game/pieces";
+import { pieceMask, hasBit, DirBit } from "../game/pieces";
 
 import { BoardLayout } from "./BoardLayout";
 import { PiecePickupState } from "./PiecePickupState";
@@ -27,6 +28,7 @@ export class BoardView {
   private pickedState: PiecePickupState;
 
   private tileVariant: number[][];
+  private flanges: Map<string, Phaser.GameObjects.Image>;
 
 
   constructor(
@@ -106,6 +108,7 @@ export class BoardView {
     Array.from({ length: model.width }, () => Phaser.Math.Between(0, 3))
 );
 
+    this.flanges = new Map();
 
   }
 
@@ -120,6 +123,8 @@ export class BoardView {
         this.placeFromModel(x, y);
       }
     }
+
+    this.updateAllFlanges();
   }
 
   syncCells(cells: { x: number; y: number }[]) {
@@ -135,6 +140,9 @@ export class BoardView {
       angle: cell.base.angle + 90,
       duration: 80,
       ease: "Sine.easeInOut",
+      onComplete: () => {
+        this.updateAllFlanges();
+      }
     });
   }
 
@@ -374,11 +382,14 @@ private applyClear(cells: { x: number; y: number }[]) {
     if (cell.base) {
       // ティント状態をクリアしてから削除
       cell.base.clearTint();
+      cell.base.setAlpha(1);
       cell.base.destroy();
       cell.base = undefined;
     }
     this.setWater(c.x, c.y, 0);
   }
+
+  this.updateAllFlanges();
 }
 
 
@@ -387,7 +398,7 @@ private applyClear(cells: { x: number; y: number }[]) {
     const rateStep = 0.02;
     const rate = Math.min(1.35, baseRate + stepIndex * rateStep);
 
-    this.scene.sound.play("blip", {
+    this.scene.sound.play("water", {
       volume: 0.35,
       rate,
   });
@@ -444,6 +455,11 @@ private pickup(sprite: Phaser.GameObjects.Image, cell: { x: number; y: number })
 
 
 private cleanupPickedArtifacts() {
+  // ピックアップされていたスプライトのティント状態をクリア
+  if (this.pickedState.sprite && this.pickedState.sprite.active) {
+    this.pickedState.sprite.clearTint();
+    this.pickedState.sprite.setAlpha(1);
+  }
   this.pickedState.destroyVisuals();
 }
 
@@ -636,9 +652,18 @@ private updatePickedPosition(px: number, py: number) {
   const chunkSize = Math.max(1, Math.ceil(sorted.length / groups));
   const stepMs = Math.max(16, Math.floor(durationMs / groups));
 
+  let chunkIndex = 0;
   for (let i = 0; i < sorted.length; i += chunkSize) {
     const chunk = sorted.slice(i, i + chunkSize);
     for (const p of chunk) this.setWater(p.x, p.y, 0);
+    
+    // 最後のチャンクが消える時にsteam.mp3を再生
+    chunkIndex++;
+    const isLastChunk = i + chunkSize >= sorted.length;
+    if (isLastChunk) {
+      this.scene.sound.play("steam", { volume: 0.5 });
+    }
+    
     await wait(this.scene, stepMs);
   }
 }
@@ -648,7 +673,7 @@ private updatePickedPosition(px: number, py: number) {
     // detune: 100 = 半音。上がりすぎ防止。
     const detune = Math.min(stepIndex, 24) * 80;
 
-    this.scene.sound.play("blip", {
+    this.scene.sound.play("water", {
       volume: 0.35,
       detune,
     } as any);
@@ -716,8 +741,86 @@ public getBaseSpriteAt(x: number, y: number): Phaser.GameObjects.Image | null {
   return this.cells[y]?.[x]?.base ?? null;
 }
 
+  // フランジの配置と更新
+  private updateAllFlanges() {
+    // 既存のすべてのフランジを破棄
+    for (const flange of this.flanges.values()) {
+      flange.destroy();
+    }
+    this.flanges.clear();
 
+    // 盤面のすべてのセルをスキャン
+    for (let y = 0; y < this.model.height; y++) {
+      for (let x = 0; x < this.model.width; x++) {
+        const tile = this.model.getCell(x, y);
+        if (!tile) continue;
 
+        // 右方向の接続をチェック
+        if (x < this.model.width - 1 && this.isConnected(x, y, x + 1, y)) {
+          this.placeFlangeHorizontal(x, y);
+        }
+
+        // 下方向の接続をチェック
+        if (y < this.model.height - 1 && this.isConnected(x, y, x, y + 1)) {
+          this.placeFlangeVertical(x, y);
+        }
+      }
+    }
+  }
+
+  // 2つのセルが正しく接続されているか判定
+  private isConnected(x1: number, y1: number, x2: number, y2: number): boolean {
+    const tile1 = this.model.getCell(x1, y1);
+    const tile2 = this.model.getCell(x2, y2);
+    if (!tile1 || !tile2) return false;
+
+    const mask1 = pieceMask(tile1.pieceId, tile1.rot);
+    const mask2 = pieceMask(tile2.pieceId, tile2.rot);
+
+    // 方向を判定
+    if (x2 === x1 + 1) { // x2が右
+      return hasBit(mask1, DirBit.R) && hasBit(mask2, DirBit.L);
+    } else if (x2 === x1 - 1) { // x2が左
+      return hasBit(mask1, DirBit.L) && hasBit(mask2, DirBit.R);
+    } else if (y2 === y1 + 1) { // y2が下
+      return hasBit(mask1, DirBit.D) && hasBit(mask2, DirBit.U);
+    } else if (y2 === y1 - 1) { // y2が上
+      return hasBit(mask1, DirBit.U) && hasBit(mask2, DirBit.D);
+    }
+    return false;
+  }
+
+  // 右方向のフランジを配置
+  private placeFlangeHorizontal(x: number, y: number) {
+    const cell1 = this.cellCenter(x, y);
+    const cell2 = this.cellCenter(x + 1, y);
+    const flangePx = (cell1.px + cell2.px) / 2;
+    const flangePy = (cell1.py + cell2.py) / 2;
+
+    const flange = this.scene.add.image(flangePx, flangePy, "flange")
+      .setDisplaySize(32, 64)
+      .setRotation(0)
+      .setDepth(3);
+
+    const key = `flange_${x}_${y}_R`;
+    this.flanges.set(key, flange);
+  }
+
+  // 下方向のフランジを配置
+  private placeFlangeVertical(x: number, y: number) {
+    const cell1 = this.cellCenter(x, y);
+    const cell2 = this.cellCenter(x, y + 1);
+    const flangePx = (cell1.px + cell2.px) / 2;
+    const flangePy = (cell1.py + cell2.py) / 2;
+
+    const flange = this.scene.add.image(flangePx, flangePy, "flange")
+      .setDisplaySize(32, 64)
+      .setRotation(Math.PI / 2)
+      .setDepth(3);
+
+    const key = `flange_${x}_${y}_D`;
+    this.flanges.set(key, flange);
+  }
 
 }
 
