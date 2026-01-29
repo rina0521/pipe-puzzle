@@ -13,8 +13,8 @@ export class FrameRenderer {
   private scene: Phaser.Scene;
   private layout: BoardLayout;
   private frame: Phaser.GameObjects.NineSlice | null = null;
-  private outPipeImage: Phaser.GameObjects.Image | null = null;
-  private outToImages: Phaser.GameObjects.Image[] = [];
+  // private outPipeImage: Phaser.GameObjects.Image | null = null;
+  // private outToImages: Phaser.GameObjects.Image[] = [];
 
   // フレーム画像の仕様（field_frame_base.png を 3x3 に分割）
   private readonly FRAME_PART_SIZE = 48;  // 1パーツのサイズ（48px）
@@ -54,16 +54,17 @@ export class FrameRenderer {
     // 枠はフィールドより奥に配置（水や落下アニメーションより手前）
     this.frame.setDepth(0.5);
 
-    // 右側の額縁の位置に out_pipe.png を配置
-    this.drawOutPipeImage(frameY, frameHeight);
+    // 右側の額縁の位置に out_pipe.png を配置（現在は非表示）
+    // this.drawOutPipeImage(frameY, frameHeight);
     
-    // ゲームフィールドの各行に out_to.png を配置
-    this.drawOutToImages();
+    // ゲームフィールドの各行に out_to.png を配置（現在は非表示）
+    // this.drawOutToImages();
   }
 
   /**
-   * ゲームフィールドの各行に out_to.png を配置
+   * ゲームフィールドの各行に out_to.png を配置（現在は非使用）
    */
+  /*
   private drawOutToImages() {
     const { offsetY, cellSize, boardH } = this.layout;
     const screenWidth = this.scene.scale.width;
@@ -86,8 +87,9 @@ export class FrameRenderer {
   }
 
   /**
-   * 右側の額縁に out_pipe.png を配置
+   * 右側の額縁に out_pipe.png を配置（現在は非使用）
    */
+  /*
   private drawOutPipeImage(frameY: number, frameHeight: number) {
     // 画面の右端を取得
     const screenWidth = this.scene.scale.width;
@@ -107,6 +109,7 @@ export class FrameRenderer {
     this.outPipeImage.setOrigin(1, 0.5); // 右端を基準に配置
     this.outPipeImage.setDepth(0.6); // フレームより少し手前
   }
+  */
 
   /**
    * レイアウト変更時に枠を再描画（画面リサイズ時など）
@@ -115,11 +118,11 @@ export class FrameRenderer {
     if (this.frame) {
       this.frame.destroy();
     }
-    if (this.outPipeImage) {
-      this.outPipeImage.destroy();
-    }
-    this.outToImages.forEach(img => img.destroy());
-    this.outToImages = [];
+    // if (this.outPipeImage) {
+    //   this.outPipeImage.destroy();
+    // }
+    // this.outToImages.forEach(img => img.destroy());
+    // this.outToImages = [];
     this.draw();
   }
 
@@ -131,11 +134,11 @@ export class FrameRenderer {
       this.frame.destroy();
       this.frame = null;
     }
-    if (this.outPipeImage) {
-      this.outPipeImage.destroy();
-      this.outPipeImage = null;
-    }
-    this.outToImages.forEach(img => img.destroy());
-    this.outToImages = [];
+    // if (this.outPipeImage) {
+    //   this.outPipeImage.destroy();
+    //   this.outPipeImage = null;
+    // }
+    // this.outToImages.forEach(img => img.destroy());
+    // this.outToImages = [];
   }
 }
