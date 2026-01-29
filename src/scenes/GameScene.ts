@@ -33,7 +33,13 @@ export class GameScene extends Phaser.Scene {
 
   // Water tank
   private waterTankBackground?: Phaser.GameObjects.Image;
+  private waterGraphics?: Phaser.GameObjects.Graphics;
   private waterTank?: Phaser.GameObjects.Image;
+  private waterLevel: number = 0.5; // 0.0～1.0で水の量を表現
+  private tankDisplayWidth: number = 0;
+  private tankDisplayHeight: number = 0;
+  private tankCenterX: number = 0;
+  private tankCenterY: number = 0;
 
   constructor() {
     super("GameScene");
@@ -111,6 +117,17 @@ export class GameScene extends Phaser.Scene {
       .setDepth(9);
     const tankBgScale = Math.min((W * 0.6) / this.waterTankBackground.width, TANK_HEIGHT / this.waterTankBackground.height);
     this.waterTankBackground.setScale(tankBgScale * 1.7, tankBgScale * 2);
+    
+    // タンクの表示サイズを保存（水レイヤーの計算に使用）
+    this.tankDisplayWidth = this.waterTankBackground.displayWidth;
+    this.tankDisplayHeight = this.waterTankBackground.displayHeight;
+    this.tankCenterX = W / 2;
+    this.tankCenterY = tankY;
+    
+    // 水レイヤーの作成（背景と前面の間）
+    this.waterGraphics = this.add.graphics()
+      .setDepth(9.5);
+    this.updateWaterLevel(this.waterLevel);
     
     // 水タンク前面の配置
     this.waterTank = this.add.image(W / 2, tankY, "water_tank")
@@ -339,5 +356,71 @@ export class GameScene extends Phaser.Scene {
     const need = this.model.stage.goal.waterFlowsToClear;
     const cur = this.gameState.getWaterFlows();
     return `Goal: flow ${need} times   (${cur}/${need})   [R] restart`;
+  }
+
+  // 水タンクの水レベルを更新（0.0〜1.0）
+  public updateWaterLevel(level: number) {
+    if (!this.waterGraphics) return;
+
+    // 水レベルを0.0〜1.0の範囲にクランプ
+    this.waterLevel = Math.max(0, Math.min(1, level));
+
+    // グラフィックをクリア
+    this.waterGraphics.clear();
+
+    if (this.waterLevel <= 0) return;
+
+    // 水の高さを計算（タンクの高さに対する割合）
+    const waterHeight = this.tankDisplayHeight * this.waterLevel;
+    const waterWidth = this.tankDisplayWidth * 0.7; // タンク幅の70%程度
+
+    // 水の下端Y座標（タンクの中央から計算）
+    const waterBottomY =
+      this.tankCenterY + this.tankDisplayHeight / 2 - 10; // 少し余白を持たせる
+    const waterTopY = waterBottomY - waterHeight;
+
+    const leftX = this.tankCenterX - waterWidth / 2;
+
+    // 1. メインの水（グラデーション風に複数の層で描画）
+    const layers = 8; // グラデーションの段階数
+    for (let i = 0; i < layers; i++) {
+      const layerHeight = waterHeight / layers;
+      const layerY = waterTopY + i * layerHeight;
+      // 上が明るく、下が暗いグラデーション
+      const brightness = 0xbf - Math.floor((i / layers) * 0x40); // 0xBF〜0x7F
+      const color = (0x00 << 16) | (brightness << 8) | 0xff; // #00xxFF
+      const alpha = 0.35 + (i / layers) * 0.15; // 上が薄く、下が濃く
+
+      this.waterGraphics.fillStyle(color, alpha);
+      this.waterGraphics.fillRect(leftX, layerY, waterWidth, layerHeight);
+    }
+
+    // 2. 水面のハイライト（白っぽい光の反射）
+    this.waterGraphics.fillStyle(0xffffff, 0.25);
+    this.waterGraphics.fillRect(leftX, waterTopY, waterWidth, 3);
+
+    // 3. 水面の波のような効果（少し不規則な形）
+    this.waterGraphics.fillStyle(0xaaccff, 0.2);
+    const waveHeight = 8;
+    const waveSegments = 6;
+    for (let i = 0; i < waveSegments; i++) {
+      const segmentWidth = waterWidth / waveSegments;
+      const waveOffset = Math.sin((i / waveSegments) * Math.PI * 2) * 2;
+      this.waterGraphics.fillRect(
+        leftX + i * segmentWidth,
+        waterTopY + 2 + waveOffset,
+        segmentWidth,
+        waveHeight
+      );
+    }
+
+    // 4. 水の下部に影のような濃い部分
+    this.waterGraphics.fillStyle(0x0066aa, 0.2);
+    this.waterGraphics.fillRect(
+      leftX,
+      waterBottomY - 15,
+      waterWidth,
+      15
+    );
   }
 }
