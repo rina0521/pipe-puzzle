@@ -152,16 +152,6 @@ export class GameScene extends Phaser.Scene {
     this.view = new BoardView(this, this.model, this.boardArea, this.boardLayout, DEFAULT_ANIMATION_CONFIG);
     this.view.syncAll();
 
-    this.add.text(W - 12, 10, "Pipe Flow", {
-      fontSize: "14px",
-      color: "#ffffff",
-    }).setOrigin(1, 0);
-
-    this.goalText = this.add.text(W - 12, 30, this.goalLabel(), {
-      fontSize: "12px",
-      color: "#cccccc",
-    }).setOrigin(1, 0);
-
     this.statusText = this.add.text(12, 58, "", {
       fontSize: "22px",
       color: "#00ff99",
@@ -187,7 +177,7 @@ export class GameScene extends Phaser.Scene {
     this.restartBtn?.destroy();
 
     const x = this.scale.width - 12;
-    const y = this.scale.height - 12;
+    const y = 12;
 
     this.restartBtn = this.add
       .text(x, y, "RESTART", {
@@ -196,7 +186,7 @@ export class GameScene extends Phaser.Scene {
         backgroundColor: "#333333",
         padding: { left: 10, right: 10, top: 6, bottom: 6 },
       })
-      .setOrigin(1, 1)
+      .setOrigin(1, 0)
       .setInteractive({ useHandCursor: true })
       .setDepth(100000);
 
