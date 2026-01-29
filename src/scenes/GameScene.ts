@@ -4,7 +4,7 @@ import { BoardModel } from "../game/boardModel";
 import type { StageConfig, Pos } from "../game/boardModel";
 import { BoardView } from "../view/BoardView";
 import { createStage001 } from "../stages/stage_001";
-import { UI_BOTTOM_HEIGHT, uiHeights } from "../ui/layout";
+import { UI_TOP_HEIGHT, UI_BOTTOM_HEIGHT } from "../ui/layout";
 import { BoardInputController } from "../ui/BoardInputController";
 import { BoardLayout, type LayoutArea } from "../view/BoardLayout";
 import { GameStateManager } from "../game/GameStateManager";
@@ -30,6 +30,10 @@ export class GameScene extends Phaser.Scene {
 
   // Frame renderer
   private frameRenderer?: FrameRenderer;
+
+  // Water tank
+  private waterTankBackground?: Phaser.GameObjects.Image;
+  private waterTank?: Phaser.GameObjects.Image;
 
   constructor() {
     super("GameScene");
@@ -59,6 +63,10 @@ export class GameScene extends Phaser.Scene {
     // 背景画像
     this.load.image("bg_top", "assets/board/frame/background.png");
 
+    // 水タンク画像
+    this.load.image("water_tank_background", "assets/tank/water_tank_background.png");
+    this.load.image("water_tank", "assets/tank/water_tank.png");
+
     // フランジ画像（パイプ接続部品）
     this.load.image("flange", "assets/pipe/flange.png");
 
@@ -78,16 +86,16 @@ export class GameScene extends Phaser.Scene {
     const W = this.scale.width;
     const H = this.scale.height;
 
-    const { top: dynamicTopHeight } = uiHeights(H);
-
-    const GUTTER_X = Math.floor(W * 0.10); 
-    const BOARD_SHIFT_Y = 0; 
+    const GUTTER_X = Math.floor(W * 0.10);
+    const TANK_HEIGHT = 100; // 水タンクの高さ
+    const TANK_MARGIN = 20; // タンクとフィールドの間隔
+    const BOARD_SHIFT_Y = TANK_HEIGHT + TANK_MARGIN; 
 
     this.boardArea = {
       x: GUTTER_X,
-      y: dynamicTopHeight + BOARD_SHIFT_Y,
+      y: UI_TOP_HEIGHT + BOARD_SHIFT_Y,
       width: W - GUTTER_X * 2,
-      height: H - (dynamicTopHeight + BOARD_SHIFT_Y) - UI_BOTTOM_HEIGHT,
+      height: H - (UI_TOP_HEIGHT + BOARD_SHIFT_Y) - UI_BOTTOM_HEIGHT,
     };
 
     // BoardLayout を作成（座標計算を統一）
@@ -95,9 +103,25 @@ export class GameScene extends Phaser.Scene {
 
     this.buildCompositePipeTextures();
 
-    // 上部背景（フレーム上端まで伸ばす）
-    const frameTopY = this.boardLayout.offsetY - 48;  // FRAME_PART_SIZEと同じ値
-    const bgTopHeight = frameTopY;
+    // 水タンクの配置（UIとフィールドの間）
+    const tankY = UI_TOP_HEIGHT + TANK_HEIGHT / 2;    
+    // 水タンク背景の配置
+    this.waterTankBackground = this.add.image(W / 2, tankY, "water_tank_background")
+      .setOrigin(0.5, 0.5)
+      .setDepth(9);
+    const tankBgScale = Math.min((W * 0.6) / this.waterTankBackground.width, TANK_HEIGHT / this.waterTankBackground.height);
+    this.waterTankBackground.setScale(tankBgScale * 1.7, tankBgScale * 2);
+    
+    // 水タンク前面の配置
+    this.waterTank = this.add.image(W / 2, tankY, "water_tank")
+      .setOrigin(0.5, 0.5)
+      .setDepth(10);
+    // 水タンクのサイズを調整（横幅1.7倍、縦幅2倍）
+    const tankScale = Math.min((W * 0.6) / this.waterTank.width, TANK_HEIGHT / this.waterTank.height);
+    this.waterTank.setScale(tankScale * 1.7, tankScale * 2);
+
+    // 上部背景（水タンクの上部まで）
+    const bgTopHeight = UI_TOP_HEIGHT;
     const bgTop = this.add.image(W / 2, bgTopHeight / 2, "bg_top")
       .setOrigin(0.5, 0.5)
       .setDepth(0);
