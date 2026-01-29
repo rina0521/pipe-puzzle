@@ -14,8 +14,8 @@ export function createStage001(): StageConfig {
     },
     faucets: {
       mode: "ANY_EDGE",
-      left: { enabledRows: "ALL" },
-      right: { enabledRows: "ALL" },
+      top: { enabledColumns: "ALL" },
+      bottom: { enabledColumns: "ALL" },
     },
     deck: {
       enabledPieces: { I2: true, L2: true, T3: true, X4: false, STOP1: false, ARROW: false },

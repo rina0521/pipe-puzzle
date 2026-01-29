@@ -43,8 +43,8 @@ export type StageConfig = {
 
   faucets: {
     mode: FaucetMode;
-    left: { enabledRows: "ALL" | number[] };
-    right: { enabledRows: "ALL" | number[] };
+    top: { enabledColumns: "ALL" | number[] };
+    bottom: { enabledColumns: "ALL" | number[] };
   };
 
   deck: {
@@ -264,14 +264,14 @@ export class BoardModel {
     while (true) {
       let clearedThisPass = false;
 
-      for (let startY = 0; startY < this.height; startY++) {
-        if (!this.isLeftRowEnabled(startY)) continue;
+      for (let startX = 0; startX < this.width; startX++) {
+        if (!this.isTopColumnEnabled(startX)) continue;
 
-        const network = this.collectNetworkFromStart(startY);
+        const network = this.collectNetworkFromStart(startX);
         if (network.size === 0) continue;
 
-        // 右端に到達していないなら、この入口ネットワークは消去対象外
-        if (!this.networkReachesRight(network)) continue;
+        // 下端に到達していないなら、この入口ネットワークは消去対象外
+        if (!this.networkReachesBottom(network)) continue;
 
         // 健全性チェック（リーク禁止）
         const chk = this.checkNetworkValid(network);
@@ -351,18 +351,18 @@ export class BoardModel {
     return steps;
   }
 
-  private collectNetworkFromStart(startY: number): Set<string> {
+  private collectNetworkFromStart(startX: number): Set<string> {
   const visited = new Set<string>();
   const q: Pos[] = [];
 
-  const t0 = this.grid[startY][0];
+  const t0 = this.grid[0][startX];
   if (!t0) return visited;
   const m0 = pieceMask(t0.pieceId, t0.rot);
-  if (!hasBit(m0, DirBit.L)) return visited; // 供給口に接続してない
+  if (!hasBit(m0, DirBit.U)) return visited; // 供給口に接続してない
 
-  const startKey = `0,${startY}`;
+  const startKey = `${startX},0`;
   visited.add(startKey);
-  q.push({ x: 0, y: startY });
+  q.push({ x: startX, y: 0 });
 
   while (q.length > 0) {
     const cur = q.shift()!;
@@ -398,13 +398,13 @@ private computeDistInNetwork(network: Set<string>): Map<string, number> {
   const dist = new Map<string, number>();
   const q: string[] = [];
 
-  // 左端のセルをスタート地点にする（最小のx座標）
-  let minX = Infinity;
+  // 上端のセルをスタート地点にする（最小のy座標）
+  let minY = Infinity;
   let startKey = "";
   for (const key of network) {
-    const [x] = key.split(",").map(Number);
-    if (x < minX) {
-      minX = x;
+    const [, y] = key.split(",").map(Number);
+    if (y < minY) {
+      minY = y;
       startKey = key;
     }
   }
@@ -444,20 +444,20 @@ private computeDistInNetwork(network: Set<string>): Map<string, number> {
 
 
 
-private networkReachesRight(network: Set<string>): boolean {
+private networkReachesBottom(network: Set<string>): boolean {
   for (const key of network) {
     const [x, y] = key.split(",").map(Number);
 
-    // 右端の列だけ見る
-    if (x !== this.width - 1) continue;
+    // 下端の行だけ見る
+    if (y !== this.height - 1) continue;
 
     const t = this.grid[y][x];
     if (!t) continue;
 
     const m = pieceMask(t.pieceId, t.rot);
 
-    // 右方向に開いていれば排水に到達
-    if (hasBit(m, DirBit.R)) {
+    // 下方向に開いていれば排水に到達
+    if (hasBit(m, DirBit.D)) {
       return true;
     }
   }
@@ -507,49 +507,49 @@ private networkReachesRight(network: Set<string>): boolean {
   }
 
   // ---------- Water logic ----------
-  private isLeftRowEnabled(y: number): boolean {
-    const { mode, left } = this.stage.faucets;
+  private isTopColumnEnabled(x: number): boolean {
+    const { mode, top } = this.stage.faucets;
     if (mode === "ANY_EDGE") return true;
-    const rows = left.enabledRows;
-    if (rows === "ALL") return true;
-    return rows.includes(y);
+    const columns = top.enabledColumns;
+    if (columns === "ALL") return true;
+    return columns.includes(x);
   }
 
-  private isRightRowEnabled(y: number): boolean {
-    const { mode, right } = this.stage.faucets;
+  private isBottomColumnEnabled(x: number): boolean {
+    const { mode, bottom } = this.stage.faucets;
     if (mode === "ANY_EDGE") return true;
-    const rows = right.enabledRows;
-    if (rows === "ALL") return true;
-    return rows.includes(y);
+    const columns = bottom.enabledColumns;
+    if (columns === "ALL") return true;
+    return columns.includes(x);
   }
 
 // TODO: 将来使用予定のメソッド（現在は未使用）
-// private computeReachableFromLeft(): {
+// private computeReachableFromTop(): {
 //   reachable: Set<string>;
 //   dist: Map<string, number>;
-//   reachedRight: boolean;
+//   reachedBottom: boolean;
 // } {
 //   const reachable = new Set<string>();
 //   const dist = new Map<string, number>();
 //   const q: { x: number; y: number }[] = [];
 //
-//   const x0 = 0;
-//   for (let y = 0; y < this.height; y++) {
-//     if (!this.isLeftRowEnabled(y)) continue;
+//   const y0 = 0;
+//   for (let x = 0; x < this.width; x++) {
+//     if (!this.isTopColumnEnabled(x)) continue;
 //
-//     const t = this.grid[y][x0];
+//     const t = this.grid[y0][x];
 //     if (!t) continue;
 //
 //     const m = pieceMask(t.pieceId, t.rot);
-//     if (!hasBit(m, DirBit.L)) continue;
+//     if (!hasBit(m, DirBit.U)) continue;
 //
-//     const key = `${x0},${y}`;
+//     const key = `${x},${y0}`;
 //     reachable.add(key);
 //     dist.set(key, 0);
-//     q.push({ x: x0, y });
+//     q.push({ x, y: y0 });
 //   }
 //
-//   let reachedRight = false;
+//   let reachedBottom = false;
 //
 //   while (q.length > 0) {
 //     const cur = q.shift()!;
@@ -559,8 +559,8 @@ private networkReachesRight(network: Set<string>): boolean {
 //     const curMask = pieceMask(curTile.pieceId, curTile.rot);
 //     const curDist = dist.get(curKey) ?? 0;
 //
-//     if (cur.x === this.width - 1 && this.isRightRowEnabled(cur.y) && hasBit(curMask, DirBit.R)) {
-//       reachedRight = true;
+//     if (cur.y === this.height - 1 && this.isBottomColumnEnabled(cur.x) && hasBit(curMask, DirBit.D)) {
+//       reachedBottom = true;
 //     }
 //
 //     for (const dir of ALL_DIRS) {
@@ -586,7 +586,7 @@ private networkReachesRight(network: Set<string>): boolean {
 //     }
 //   }
 //
-//   return { reachable, dist, reachedRight };
+//   return { reachable, dist, reachedBottom };
 // }
 
   // ---------- Mutations ----------
@@ -633,9 +633,9 @@ private networkReachesRight(network: Set<string>): boolean {
 
       // 盤外
       if (!this.inBounds(nx, ny)) {
-        const okLeft  = (x === 0 && dir === DirBit.L && this.isLeftRowEnabled(y));
-        const okRight = (x === this.width - 1 && dir === DirBit.R && this.isRightRowEnabled(y));
-        if (okLeft || okRight) continue;
+        const okTop    = (y === 0 && dir === DirBit.U && this.isTopColumnEnabled(x));
+        const okBottom = (y === this.height - 1 && dir === DirBit.D && this.isBottomColumnEnabled(x));
+        if (okTop || okBottom) continue;
         return { ok: false, reason: `leak to OUTSIDE at (${x},${y}) dir=${dir}` };
       }
 
